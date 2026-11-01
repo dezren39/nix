@@ -351,6 +351,9 @@ if [ "$(id -u)" -ne 0 ]; then
 {
   printf 'args: %s\n' "$*"
   printf 'ONLY_TMPDIR=%s\n' "${ONLY_TMPDIR:-unset}"
+  printf 'NIX_KEEP_DAYS=%s\n' "${NIX_KEEP_DAYS:-unset}"
+  printf 'PYTEST_KEEP_HOURS=%s\n' "${PYTEST_KEEP_HOURS:-unset}"
+  printf 'VSCODE_PRUNE_HEAVY=%s\n' "${VSCODE_PRUNE_HEAVY:-unset}"
 } >> "$SUDO_STUB_LOG"
 exit 0
 STUB_EOF
@@ -373,6 +376,41 @@ STUB_EOF
     *"brew cleanup"*) fail "--only-tmpdir ran pre-sudo brew cleanup" ;;
     *) echo "ok: --only-tmpdir skipped pre-sudo brew cleanup" ;;
   esac
+  # Validated tunables survive the same re-exec (#1309): the re-exec
+  # assigned and --preserve-env-listed only 10 of the 18 validated
+  # tunables, so the rest were dropped by sudo env_reset and the root
+  # run silently used defaults (NIX_KEEP_DAYS=0 never took effect).
+  : > "$SUDO_STUB_LOG"
+  OLD_PATH="$PATH"
+  PATH="$sudo_stub_dir:$PATH"
+  export NIX_KEEP_DAYS=0 PYTEST_KEEP_HOURS=1 VSCODE_PRUNE_HEAVY=1
+  run --only-tmpdir
+  PATH="$OLD_PATH"
+  unset NIX_KEEP_DAYS PYTEST_KEEP_HOURS VSCODE_PRUNE_HEAVY
+  [ "$STATUS" -eq 0 ] || fail "tunable sudo re-exec exited $STATUS (want 0, stderr: $ERR)"
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"NIX_KEEP_DAYS=0"*) echo "ok: NIX_KEEP_DAYS=0 carried into the sudo re-exec" ;;
+    *) fail "NIX_KEEP_DAYS=0 did not reach the sudo re-exec (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"PYTEST_KEEP_HOURS=1"*) echo "ok: PYTEST_KEEP_HOURS=1 carried into the sudo re-exec" ;;
+    *) fail "PYTEST_KEEP_HOURS=1 did not reach the sudo re-exec (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"VSCODE_PRUNE_HEAVY=1"*) echo "ok: VSCODE_PRUNE_HEAVY=1 carried into the sudo re-exec" ;;
+    *) fail "VSCODE_PRUNE_HEAVY=1 did not reach the sudo re-exec (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  # The --preserve-env list itself (the stub's args line, not the env
+  # lines below it) is the discriminating check: real sudo env_reset
+  # drops any carried value whose name is not listed there.
+  _args_line="$(grep '^args:' "$SUDO_STUB_LOG")"
+  for _tunable in NIX_KEEP_DAYS NIX_KEEP_GENS SHORT_SCRATCH_STALE_HOURS PG_SCRATCH_STALE_HOURS ACTIVE_ARTIFACT_STALE_HOURS PYTEST_KEEP_HOURS UNKNOWN_SCRATCH_MIN_MB UNKNOWN_SCRATCH_STALE_DAYS VSCODE_PRUNE_HEAVY; do
+    case "$_args_line" in
+      *",$_tunable,"*|*",$_tunable "*) echo "ok: $_tunable named in --preserve-env" ;;
+      *) fail "$_tunable missing from --preserve-env (args: $_args_line)" ;;
+    esac
+  done
+  unset _tunable _args_line
   unset SUDO_STUB_LOG
 else
   echo "skip: --only-tmpdir re-exec test needs a non-root runner"
