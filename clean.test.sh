@@ -267,14 +267,24 @@ for mode in bsd gnu; do
   fi
   ERR="$(cat "$TMP_ROOT/err")"
   [ "$STATUS" -eq 0 ] || fail "pytest guard ($mode stat): --system --dry-run exited $STATUS (stderr: $ERR)"
-  case "$OUT" in
-    *"would delete:"*pytest-1*) echo "ok: pytest guard ($mode stat) schedules the older run for deletion" ;;
-    *) fail "pytest guard ($mode stat): older pytest-1 not scheduled for deletion" ;;
-  esac
-  case "$OUT" in
-    *"would delete:"*pytest-2*) fail "pytest guard ($mode stat): newest pytest-2 scheduled for deletion -- guard did not fire" ;;
-    *) echo "ok: pytest guard ($mode stat) preserves the newest run" ;;
-  esac
+  # Line-exact, fixture-path-pinned matching (#1314): the old whole-output
+  # globs (*"would delete:"*pytest-2*) matched the host's real
+  # /tmp/pytest-of-user/pytest-21 and pytest-22 would-delete lines --
+  # "pytest-2" is a substring of both, and a glob spans lines -- so the
+  # suite failed on any machine with real pytest runs in /tmp even though
+  # the guard fired. Match a single would-delete line naming this
+  # fixture's run directory, end-anchored so pytest-1x/pytest-2x host
+  # runs cannot trip it either.
+  if printf '%s\n' "$OUT" | grep -q 'would delete: .*pytest-of-fixture/pytest-1$'; then
+    echo "ok: pytest guard ($mode stat) schedules the older run for deletion"
+  else
+    fail "pytest guard ($mode stat): older pytest-1 not scheduled for deletion"
+  fi
+  if printf '%s\n' "$OUT" | grep -q 'would delete: .*pytest-of-fixture/pytest-2$'; then
+    fail "pytest guard ($mode stat): newest pytest-2 scheduled for deletion -- guard did not fire"
+  else
+    echo "ok: pytest guard ($mode stat) preserves the newest run"
+  fi
   [ -e "$PTDIR/pytest-current" ] || fail "pytest guard ($mode stat): pytest-current dangling after the run"
 done
 
