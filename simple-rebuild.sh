@@ -42,6 +42,123 @@ cd "${script_dir}" || exit 1
 echo "entered: $script_dir"
 echo "git add ."
 
+# Phases.
+#
+# `just build`, `just activate` and `just switch` are three entry points into
+# one implementation, so there is nothing to drift. The split is by privilege:
+# phase_build needs no sudo and can run unattended, phase_activate needs root
+# and therefore a human (or a fingerprint) at the machine.
+#
+#   --build-only     prepare + build            no sudo
+#   --activate-only  activate + post + commit   sudo
+#   (no flag)        all of it
+#   --no-commit      combinable with any of the above: still stages (flakes
+#                    only see tracked files) but skips the marker commits, for
+#                    iterating on a build that is not ready to be recorded
+# Parse and validate EVERYTHING before the first side effect (#1316):
+# reclaim_root_owned (may sudo chown), the first `git add .` and
+# refresh_nix_access_token all run below this block, so a rejected
+# invocation -- and -h/--help -- must be decided here, not after them.
+mode="all"
+generation=""
+no_commit=0
+usage="usage: ${0:t} [--no-commit] [--build-only|--activate-only [GENERATION]]"
+# --build-only and --activate-only are alternatives, not last-win (#1149).
+# The split is a privilege boundary (build needs no sudo, activate does),
+# so a pair that silently resolves to whichever came last can cross it in
+# either direction; a repeated --activate-only likewise silently discarded
+# the first GENERATION, and a GENERATION followed by --build-only was
+# stranded in a build run that ignores it, exit 0. Reject all three at
+# parse time, naming the flags, before any phase runs.
+seen_build=0
+seen_activate=0
+while (( $# )); do
+  case "$1" in
+    --build-only)
+      if (( seen_activate )); then
+        echo "simple-rebuild.sh: --build-only conflicts with --activate-only (choose one)" >&2
+        exit 2
+      fi
+      seen_build=1; mode="build" ;;
+    --activate-only)
+      if (( seen_activate )); then
+        echo "simple-rebuild.sh: --activate-only given more than once (choose one GENERATION)" >&2
+        exit 2
+      fi
+      if (( seen_build )); then
+        echo "simple-rebuild.sh: --activate-only conflicts with --build-only (choose one)" >&2
+        exit 2
+      fi
+      seen_activate=1; mode="activate"
+      if [[ -n "${2:-}" && "$2" != --* ]]; then generation="$2"; shift; fi
+      ;;
+    --no-commit)     no_commit=1 ;;
+    -h|--help)       echo "$usage"; exit 0 ;;
+    *) echo "$usage" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+# Validate GENERATION whole, here at parse time (#1022), in the shape of
+# the HEALTH_TIMEOUT block below (#880) and branch-cleanup's inactive_days
+# (#1015). The parse above takes any token not starting with `--` as the
+# generation, and the value's only use is the rollback path's
+# `sudo darwin-rebuild --switch-generation "$generation"` -- so -1, abc,
+# 3.5, 0, a 26-digit string, and even the single-dash typo -no-commit (with
+# no_commit left unset) were all accepted here and failed only later,
+# after a sudo prompt, inside darwin-rebuild's own parser. Judge it now,
+# before any phase: digits only, positive, with an INT_MAX range backstop
+# judged on the stripped value by digit count first, then by value (at
+# most 10 digits always fits zsh's 64-bit arithmetic). Leading zeros are
+# normalized away, as they would otherwise be read as octal downstream.
+if [[ -n "$generation" ]]; then
+  case "$generation" in
+    *[!0-9]*|'')
+      echo "simple-rebuild.sh: --activate-only GENERATION must be a positive integer (got: $generation)" >&2
+      exit 2 ;;
+  esac
+  _gen="$generation"
+  while [[ "$_gen" == 0?* ]]; do _gen="${_gen#0}"; done
+  if (( ${#_gen} > 10 || _gen > 2147483647 || _gen <= 0 )); then
+    echo "simple-rebuild.sh: --activate-only GENERATION must be a positive integer (got: $generation)" >&2
+    exit 2
+  fi
+  generation="$_gen"
+  unset _gen
+fi
+
+# HEALTH_TIMEOUT is used only in zsh arithmetic ($(( SECONDS + ... ))) in
+# check_services below, where a bare word silently evaluates to 0 -- so
+# HEALTH_TIMEOUT=abc used to collapse the deadline to *now* and report
+# still-starting agents as not up after a successful switch, 10junk aborted
+# the run with a raw "bad math expression" (under set -e, after the switch
+# was already recorded), and a >64-bit value truncated and wrapped negative
+# (#880). Judge it whole, once, here at parse time -- before reclaim,
+# staging and the token refresh (#1316), and long before the health
+# check, like clean.sh judges its tunables (#829/#862): digits only,
+# positive, with an INT_MAX
+# range backstop judged on the stripped value by digit count first, then by
+# value (at most 10 digits always fits zsh's 64-bit arithmetic). Unset or
+# empty is fine: the ${HEALTH_TIMEOUT:-60} default at the use site supplies
+# a known-good literal.
+if [[ -n "${HEALTH_TIMEOUT:-}" ]]; then
+  case "$HEALTH_TIMEOUT" in
+    *[!0-9]*|'')
+      echo "simple-rebuild.sh: HEALTH_TIMEOUT must be a positive integer (got: $HEALTH_TIMEOUT)" >&2
+      exit 2 ;;
+  esac
+  _ht="$HEALTH_TIMEOUT"
+  while [[ "$_ht" == 0?* ]]; do _ht="${_ht#0}"; done
+  if (( ${#_ht} > 10 || _ht > 2147483647 || _ht <= 0 )); then
+    echo "simple-rebuild.sh: HEALTH_TIMEOUT must be a positive integer (got: $HEALTH_TIMEOUT)" >&2
+    exit 2
+  fi
+  unset _ht
+fi
+
+# End of parse-time validation (#1316) -- everything below this line
+# may have side effects.
+
 # Reclaim any root-owned files, but only if there are any.
 #
 # This was an unconditional `sudo chown -R`, which prompted for a password
@@ -117,86 +234,6 @@ refresh_nix_access_token() {
 { set +x; } 2>/dev/null
 refresh_nix_access_token
 set -x
-
-# Phases.
-#
-# `just build`, `just activate` and `just switch` are three entry points into
-# one implementation, so there is nothing to drift. The split is by privilege:
-# phase_build needs no sudo and can run unattended, phase_activate needs root
-# and therefore a human (or a fingerprint) at the machine.
-#
-#   --build-only     prepare + build            no sudo
-#   --activate-only  activate + post + commit   sudo
-#   (no flag)        all of it
-#   --no-commit      combinable with any of the above: still stages (flakes
-#                    only see tracked files) but skips the marker commits, for
-#                    iterating on a build that is not ready to be recorded
-mode="all"
-generation=""
-no_commit=0
-usage="usage: ${0:t} [--no-commit] [--build-only|--activate-only [GENERATION]]"
-# --build-only and --activate-only are alternatives, not last-win (#1149).
-# The split is a privilege boundary (build needs no sudo, activate does),
-# so a pair that silently resolves to whichever came last can cross it in
-# either direction; a repeated --activate-only likewise silently discarded
-# the first GENERATION, and a GENERATION followed by --build-only was
-# stranded in a build run that ignores it, exit 0. Reject all three at
-# parse time, naming the flags, before any phase runs.
-seen_build=0
-seen_activate=0
-while (( $# )); do
-  case "$1" in
-    --build-only)
-      if (( seen_activate )); then
-        echo "simple-rebuild.sh: --build-only conflicts with --activate-only (choose one)" >&2
-        exit 2
-      fi
-      seen_build=1; mode="build" ;;
-    --activate-only)
-      if (( seen_activate )); then
-        echo "simple-rebuild.sh: --activate-only given more than once (choose one GENERATION)" >&2
-        exit 2
-      fi
-      if (( seen_build )); then
-        echo "simple-rebuild.sh: --activate-only conflicts with --build-only (choose one)" >&2
-        exit 2
-      fi
-      seen_activate=1; mode="activate"
-      if [[ -n "${2:-}" && "$2" != --* ]]; then generation="$2"; shift; fi
-      ;;
-    --no-commit)     no_commit=1 ;;
-    *) echo "$usage" >&2; exit 2 ;;
-  esac
-  shift
-done
-
-# Validate GENERATION whole, here at parse time (#1022), in the shape of
-# the HEALTH_TIMEOUT block below (#880) and branch-cleanup's inactive_days
-# (#1015). The parse above takes any token not starting with `--` as the
-# generation, and the value's only use is the rollback path's
-# `sudo darwin-rebuild --switch-generation "$generation"` -- so -1, abc,
-# 3.5, 0, a 26-digit string, and even the single-dash typo -no-commit (with
-# no_commit left unset) were all accepted here and failed only later,
-# after a sudo prompt, inside darwin-rebuild's own parser. Judge it now,
-# before any phase: digits only, positive, with an INT_MAX range backstop
-# judged on the stripped value by digit count first, then by value (at
-# most 10 digits always fits zsh's 64-bit arithmetic). Leading zeros are
-# normalized away, as they would otherwise be read as octal downstream.
-if [[ -n "$generation" ]]; then
-  case "$generation" in
-    *[!0-9]*|'')
-      echo "simple-rebuild.sh: --activate-only GENERATION must be a positive integer (got: $generation)" >&2
-      exit 2 ;;
-  esac
-  _gen="$generation"
-  while [[ "$_gen" == 0?* ]]; do _gen="${_gen#0}"; done
-  if (( ${#_gen} > 10 || _gen > 2147483647 || _gen <= 0 )); then
-    echo "simple-rebuild.sh: --activate-only GENERATION must be a positive integer (got: $generation)" >&2
-    exit 2
-  fi
-  generation="$_gen"
-  unset _gen
-fi
 
 # Every marker commit goes through here so --no-commit has one place to act.
 commit_marker() {
@@ -372,32 +409,9 @@ health_services=(
   "org.nixos.mcpx cmd:cd ~ && mcpx ls"
 )
 
-# HEALTH_TIMEOUT is used only in zsh arithmetic ($(( SECONDS + ... ))) in
-# check_services below, where a bare word silently evaluates to 0 -- so
-# HEALTH_TIMEOUT=abc used to collapse the deadline to *now* and report
-# still-starting agents as not up after a successful switch, 10junk aborted
-# the run with a raw "bad math expression" (under set -e, after the switch
-# was already recorded), and a >64-bit value truncated and wrapped negative
-# (#880). Judge it whole, once, here before the health check, like clean.sh
-# judges its tunables (#829/#862): digits only, positive, with an INT_MAX
-# range backstop judged on the stripped value by digit count first, then by
-# value (at most 10 digits always fits zsh's 64-bit arithmetic). Unset or
-# empty is fine: the ${HEALTH_TIMEOUT:-60} default at the use site supplies
-# a known-good literal.
-if [[ -n "${HEALTH_TIMEOUT:-}" ]]; then
-  case "$HEALTH_TIMEOUT" in
-    *[!0-9]*|'')
-      echo "simple-rebuild.sh: HEALTH_TIMEOUT must be a positive integer (got: $HEALTH_TIMEOUT)" >&2
-      exit 2 ;;
-  esac
-  _ht="$HEALTH_TIMEOUT"
-  while [[ "$_ht" == 0?* ]]; do _ht="${_ht#0}"; done
-  if (( ${#_ht} > 10 || _ht > 2147483647 || _ht <= 0 )); then
-    echo "simple-rebuild.sh: HEALTH_TIMEOUT must be a positive integer (got: $HEALTH_TIMEOUT)" >&2
-    exit 2
-  fi
-  unset _ht
-fi
+# HEALTH_TIMEOUT was already validated at parse time, before any side
+# effect (#1316) -- see the validation block near the top of this script.
+# The ${HEALTH_TIMEOUT:-60} default at the use sites below is unchanged.
 
 agent_pid() {
   launchctl list | awk -v l="$1" '$3 == l && $1 != "-" { print $1 }'

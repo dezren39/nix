@@ -15,8 +15,9 @@
 # This suite cannot drive the real script end to end (a valid control
 # would run a real nix build / darwin activation), so it extracts the
 # REAL parser segment from simple-rebuild.sh -- from `mode="all"`
-# through the GENERATION validation, stopping before the marker-commit
-# helper -- and runs that segment under zsh, the script's interpreter.
+# through the GENERATION and HEALTH_TIMEOUT validation, stopping at the
+# end-of-parse marker comment -- and runs that segment under zsh, the
+# script's interpreter.
 # Nothing is a pasted copy: if the shipped parser changes, the
 # extracted segment changes with it, and a missing marker fails here.
 #
@@ -38,9 +39,28 @@ ok() { echo "ok: $1"; }
 
 # Extract the parser segment from the real script.
 SEGMENT="$TMP_ROOT/parser.zsh"
-awk '/^mode="all"/{f=1} /^# Every marker commit/{f=0} f' "$SCRIPT" >"$SEGMENT"
+awk '/^mode="all"/{f=1} /^# End of parse-time validation/{f=0} f' "$SCRIPT" >"$SEGMENT"
 [ -s "$SEGMENT" ] || { echo "could not extract parser segment from simple-rebuild.sh" >&2; exit 1; }
 grep -q 'seen_activate' "$SEGMENT" || fail "extracted segment lacks the #1149 mode-flag guards"
+grep -q 'HEALTH_TIMEOUT' "$SEGMENT" || fail "extracted segment lacks the HEALTH_TIMEOUT validation"
+
+# --- Ordering pin (#1316): parse + validation precede side effects ---
+line_of() { grep -n -m1 -- "$1" "$SCRIPT" | cut -d: -f1; }
+parse_line="$(line_of '^mode="all"')"
+gen_line="$(line_of 'GENERATION must be a positive integer')"
+ht_line="$(line_of 'HEALTH_TIMEOUT must be a positive integer')"
+reclaim_line="$(line_of '^reclaim_root_owned$')"
+gitadd_line="$(awk '/^  git add \.$/{print NR; exit}' "$SCRIPT")"
+token_line="$(line_of '^refresh_nix_access_token$')"
+if [ -n "$parse_line" ] && [ -n "$gen_line" ] && [ -n "$ht_line" ] && [ -n "$reclaim_line" ] \
+  && [ -n "$gitadd_line" ] && [ -n "$token_line" ] \
+  && [ "$parse_line" -lt "$reclaim_line" ] && [ "$parse_line" -lt "$gitadd_line" ] \
+  && [ "$parse_line" -lt "$token_line" ] && [ "$gen_line" -lt "$reclaim_line" ] \
+  && [ "$ht_line" -lt "$reclaim_line" ]; then
+  ok "parse + GENERATION + HEALTH_TIMEOUT validation precede reclaim/git add/token refresh (#1316)"
+else
+  fail "ordering pin (#1316): parse=$parse_line gen=$gen_line ht=$ht_line reclaim=$reclaim_line gitadd=$gitadd_line token=$token_line"
+fi
 
 PROBE="$TMP_ROOT/probe.zsh"
 cat >"$PROBE" <<EOF
@@ -98,6 +118,24 @@ expect_parse "--activate-only 5 --no-commit" "mode=activate generation=5 no_comm
 expect_reject "--activate-only abc" "GENERATION" "" --activate-only abc
 expect_parse "--activate-only 007" "mode=activate generation=7 no_commit=0" --activate-only 007
 expect_reject "--bogus" "usage:" "" --bogus
+
+# --- -h/--help: usage on stdout, exit 0, decided at parse time -------
+expect_help() { # expect_help <flag>
+  run "$1"
+  [ "$STATUS" -eq 0 ] || { fail "$1 exited $STATUS (want 0)"; return; }
+  case "$OUT" in *"usage:"*) ok "$1 prints usage, exit 0" ;; *) fail "$1 stdout lacked usage (got: $OUT)" ;; esac
+}
+expect_help --help
+expect_help -h
+
+# --- HEALTH_TIMEOUT validation runs inside the extracted segment -----
+OUT="$(HEALTH_TIMEOUT=abc zsh "$PROBE" 2>"$TMP_ROOT/err")"; STATUS=$?
+ERR="$(cat "$TMP_ROOT/err")"
+if [ "$STATUS" -eq 2 ]; then
+  case "$ERR" in *"HEALTH_TIMEOUT"*) ok "HEALTH_TIMEOUT=abc rejected at parse time, exit 2" ;; *) fail "HEALTH_TIMEOUT=abc stderr did not name HEALTH_TIMEOUT (got: $ERR)" ;; esac
+else
+  fail "HEALTH_TIMEOUT=abc exited $STATUS (want 2)"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures simple-rebuild parser check(s) failed" >&2
