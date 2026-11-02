@@ -172,6 +172,113 @@ if grep -q "Done (status" <<<"$out_j2"; then
 fi
 [[ $failures -eq $start ]] && ok "J: empty target (plain and after --) prints error + usage, exit 1, no status work"
 
+# ─── Scenario K (#1323): a failing umount must not report success ──────────
+# do_unmount used to run both umount calls unchecked and end with a
+# successful log, so a failed unmount printed "Unmounted", counted no
+# error, and exited 0 with both mounts still up (verified with stub
+# mount/umount on main). This scenario drives the REAL (non-dry-run)
+# --unmount path with stateful stubs: stub `mount` reports the mounts
+# listed in $MOUNT_STATE, stub `umount` removes a mountpoint from that
+# state only when it succeeds, stub `rmdir` only logs its calls.
+# check_deps needs a macFUSE marker at an absolute path, so the run
+# either uses a real marker (macOS) or fakes one inside a user+mount
+# namespace (overlay over /usr). Where neither is available the
+# scenario is skipped explicitly, never silently passed.
+start=$failures
+STUB_BIN="$TMP_ROOT/stub-bin"; mkdir -p "$STUB_BIN"
+UMOUNT_TARGET="$TMP_ROOT/umount-target"
+mkdir -p "$UMOUNT_TARGET/.opencode" "$UMOUNT_TARGET/plans"
+touch "$UMOUNT_TARGET/plans/keep.md"
+export MOUNT_STATE="$TMP_ROOT/mount-state"
+export UMOUNT_LOG="$TMP_ROOT/umount-calls.log"
+export RMDIR_LOG="$TMP_ROOT/rmdir-calls.log"
+cat > "$STUB_BIN/mount" <<'STUB'
+#!/usr/bin/env bash
+while IFS= read -r mp; do
+  [[ -n "$mp" ]] && echo "bindfs on $mp (fuse, local)"
+done < "$MOUNT_STATE"
+STUB
+cat > "$STUB_BIN/umount" <<'STUB'
+#!/usr/bin/env bash
+echo "umount $*" >> "$UMOUNT_LOG"
+if [[ "${UMOUNT_RC:-0}" != "0" ]]; then
+  exit "$UMOUNT_RC"
+fi
+grep -v -F -x -- "$1" "$MOUNT_STATE" > "$MOUNT_STATE.tmp" || true
+mv "$MOUNT_STATE.tmp" "$MOUNT_STATE"
+exit 0
+STUB
+cat > "$STUB_BIN/bindfs" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+cat > "$STUB_BIN/rmdir" <<'STUB'
+#!/usr/bin/env bash
+echo "rmdir $*" >> "$RMDIR_LOG"
+exit 0
+STUB
+chmod +x "$STUB_BIN/mount" "$STUB_BIN/umount" "$STUB_BIN/bindfs" "$STUB_BIN/rmdir"
+cat > "$TMP_ROOT/fake-macfuse.sh" <<'STUB'
+#!/usr/bin/env bash
+set -e
+mount -t overlay overlay -o lowerdir=/usr,upperdir="$1",workdir="$2" /usr
+mkdir -p /usr/local/lib
+touch /usr/local/lib/libfuse.dylib
+shift 2
+exec "$@"
+STUB
+chmod +x "$TMP_ROOT/fake-macfuse.sh"
+k_mode=""
+if [[ -d "/Library/Filesystems/macfuse.fs" || -f "/usr/local/lib/libfuse.dylib" || -f "/opt/homebrew/lib/libfuse.dylib" ]]; then
+  k_mode="direct"
+else
+  mkdir -p "$TMP_ROOT/ov-probe-up" "$TMP_ROOT/ov-probe-work"
+  if unshare -rm bash "$TMP_ROOT/fake-macfuse.sh" "$TMP_ROOT/ov-probe-up" "$TMP_ROOT/ov-probe-work" true 2>/dev/null; then
+    k_mode="namespace"
+  fi
+fi
+run_k() {
+  export UMOUNT_RC="$1"
+  printf '%s\n%s\n' "$UMOUNT_TARGET/.opencode" "$UMOUNT_TARGET/.opencode/plans" > "$MOUNT_STATE"
+  : > "$UMOUNT_LOG"; : > "$RMDIR_LOG"
+  mkdir -p "$UMOUNT_TARGET/.opencode"
+  if [[ "$k_mode" == "direct" ]]; then
+    PATH="$STUB_BIN:$PATH" bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1
+  else
+    local up="$TMP_ROOT/ov-up-$1-$RANDOM" work="$TMP_ROOT/ov-work-$1-$RANDOM"
+    mkdir -p "$up" "$work"
+    unshare -rm bash "$TMP_ROOT/fake-macfuse.sh" "$up" "$work" \
+      env PATH="$STUB_BIN:$PATH" bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1
+  fi
+}
+if [[ -z "$k_mode" ]]; then
+  echo "SKIP: K: cannot fake the macFUSE marker (no real marker, no usable user namespace); failing-umount scenario not run"
+else
+  out_k="$(run_k 1)"; rc_k=$?
+  [[ $rc_k -ne 0 ]] || fail "K: failing umount expected non-zero exit, got $rc_k"
+  grep -q "Failed to unmount plans overlay: $UMOUNT_TARGET/.opencode/plans" <<<"$out_k" || fail "K: plans-overlay failure not named on stderr"
+  grep -q "Failed to unmount .opencode: $UMOUNT_TARGET/.opencode" <<<"$out_k" || fail "K: outer-mount failure not named on stderr"
+  grep -q "1 target(s) had errors" <<<"$out_k" || fail "K: target not counted as an error in the summary"
+  if grep -q "Unmounted .opencode from" <<<"$out_k"; then
+    fail "K: still-mounted target reported as Unmounted (regression)"
+  fi
+  if grep -q "Done (unmount" <<<"$out_k"; then
+    fail "K: success Done line printed for a failed unmount (regression)"
+  fi
+  grep -q "umount $UMOUNT_TARGET/.opencode/plans" "$UMOUNT_LOG" || fail "K: plans umount was never attempted"
+  grep -q "umount $UMOUNT_TARGET/.opencode" "$UMOUNT_LOG" || fail "K: outer umount was never attempted"
+  if [[ -s "$RMDIR_LOG" ]]; then
+    fail "K: rmdir ran against a still-mounted directory (regression)"
+  fi
+  grep -q "Project plans preserved" <<<"$out_k" || fail "K: plans-preserved line missing on the failure path"
+  out_k2="$(run_k 0)"; rc_k2=$?
+  [[ $rc_k2 -eq 0 ]] || fail "K: successful umount control expected exit 0, got $rc_k2"
+  grep -q "Unmounted .opencode from $UMOUNT_TARGET" <<<"$out_k2" || fail "K: successful control did not report Unmounted"
+  grep -q "Done (unmount 1 target(s))" <<<"$out_k2" || fail "K: successful control missing the Done line"
+  [[ -s "$RMDIR_LOG" ]] || fail "K: successful control did not rmdir the empty, unmounted mount point"
+  [[ $failures -eq $start ]] && ok "K: failing umount exits non-zero, names both failures, counts the target, no Unmounted/rmdir; successful control unchanged"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1
