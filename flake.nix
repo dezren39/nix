@@ -958,11 +958,10 @@ rec {
         # effects) plus a --dry-run valid-value control over a fixture
         # repo.
         # #978: the check copies must be shebang-patched (here and in the
-        # discover/clean/spotlight checks): consumers execute the sibling
-        # git-discover-repos directly, and the nix build sandbox has no
-        # /usr/bin/env, so the unpatched `#!/usr/bin/env bash` copy fails
-        # with "bad interpreter", its stderr is swallowed by the consumer,
-        # and discovery silently reports 0 repos.
+        # discover/clean/spotlight checks): git-maintain-repos starts worker
+        # copies of itself via xargs, and its consumers execute the sibling
+        # git-discover-repos directly. The nix build sandbox has no
+        # /usr/bin/env, so an unpatched `#!/usr/bin/env bash` copy cannot run.
         git-maintain-repos-tests =
           pkgs.runCommandLocal "git-maintain-repos-tests"
             {
@@ -978,7 +977,7 @@ rec {
               cp $src/lib/common.sh lib/
               cp $src/lib/arg-probe.sh lib/
               chmod u+w ./git-maintain-repos ./git-maintain-repos.test.sh ./git-discover-repos
-              patchShebangs ./git-discover-repos
+              patchShebangs ./git-discover-repos ./git-maintain-repos
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./git-maintain-repos.test.sh

@@ -43,7 +43,8 @@ fail() {
 }
 
 VALID="$TMP_ROOT/valid"
-mkdir -p "$VALID/repo1/.git"
+mkdir -p "$VALID"
+git init -q "$VALID/repo1"
 
 run() { # run <args...> — sets OUT, ERR, STATUS
   OUT="$(bash "$SCRIPT" "$@" 2>"$TMP_ROOT/err")"; STATUS=$?
