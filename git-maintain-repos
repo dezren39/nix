@@ -487,9 +487,45 @@ printf '%s\0' "${repos[@]}" |
   REFLOG_EXPIRE="$REFLOG_EXPIRE" PACK_THREADS="$PACK_THREADS" EXPIRE_REFLOG="$EXPIRE_REFLOG" \
     xargs -0 -P "$JOBS" -I{} "$self" --one {}
 
+# Per-repo registration (#1327): usage and --dry-run have always promised
+# `git maintenance register` + gc.auto 0 + maintenance.auto false per repo,
+# but the parallel worker never did any of it. Registration is done here,
+# serially in the driver after the xargs fan-out -- NOT in the workers --
+# because every registration writes the one shared maintenance.config:
+# serial writes cannot hit config-lock contention however many jobs ran,
+# the config directory is ensured exactly once, and failures aggregate in
+# one place. This runs in every scope that reached discovery, including
+# walk (--no-system), where ensure_scheduler never creates the file.
+register_failures=0
+if [ "$REGISTER" = "1" ]; then
+  mc="$HOME/.config/git/maintenance.config"
+  mkdir -p "$(dirname "$mc")"
+  for repo in "${repos[@]}"; do
+    repo_failed=0
+    if ! git -C "$repo" maintenance register --config-file "$mc" 2>/dev/null; then
+      echo "git-maintain-repos: registration failed for $repo: git maintenance register" >&2
+      repo_failed=1
+    fi
+    if ! git -C "$repo" config gc.auto 0 2>/dev/null; then
+      echo "git-maintain-repos: registration failed for $repo: git config gc.auto 0" >&2
+      repo_failed=1
+    fi
+    if ! git -C "$repo" config maintenance.auto false 2>/dev/null; then
+      echo "git-maintain-repos: registration failed for $repo: git config maintenance.auto false" >&2
+      repo_failed=1
+    fi
+    register_failures=$((register_failures + repo_failed))
+  done
+  if [ "$register_failures" -gt 0 ]; then
+    echo "git-maintain-repos: registration failed for $register_failures of ${#repos[@]} repo(s)" >&2
+  fi
+fi
+
 # --walk deliberately skips the system half.
 if [ "$REGISTER" = "1" ] && [ "$SCOPE" != "walk" ]; then
   echo
   echo "git-maintain-repos: scheduler"
   ensure_scheduler
 fi
+
+[ "$register_failures" -eq 0 ] || exit 1
