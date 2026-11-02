@@ -12,13 +12,12 @@ name: main-broken watcher
 # Breakage-ID. This repo has no Jules door, so the issue is released to
 # the fleet queue directly at filing time.
 #
-# Matching is by workflow-file PATH, never by name (#1187): the
-# `workflow_run` `workflows:` filter matches on the workflow name, and
-# a workflow whose file is invalid is recorded under its file path,
-# not its name - so a name filter is blind to exactly the most severe
-# breakage (the whole workflow dead, zero jobs). The trigger below
-# therefore carries no name list, and the job gates on
-# `github.event.workflow_run.path` instead.
+# The `workflow_run` trigger requires a `workflows:` name list. The
+# job's `github.event.workflow_run.path` gate then refines that filter
+# to these three files (#1187). An invalid upstream workflow can be
+# recorded under its file path instead of its name, so this watcher
+# cannot detect that case; in practice the source/ci-watch main-CI
+# trigger that filed #1347 covers that blind spot.
 #
 # Hybrid pm-dispatch migration (developing-today/code#2672): the issue
 # creation stays in this workflow because the pm-stack GitHub App is
@@ -32,9 +31,7 @@ name: main-broken watcher
 
 "on":
   workflow_run:
-    # No `workflows:` list - see the header note (#1187). This fires
-    # for every completed workflow run on main; the job's path gate
-    # below is what selects the three watched workflows.
+    workflows: ["mcpx nix build", "flake packages build", "flake checks build"]
     branches: [main]
     types: [completed]
   workflow_dispatch:
