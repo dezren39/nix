@@ -46,6 +46,7 @@ USE_SUDO=""          # empty = decide from --dry-run
 CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
 VAR_FOLDERS_ROOT="${VAR_FOLDERS_ROOT:-/private/var/folders}" # the --tmpdir sweep's root (env seam so tests can point it at a fixture)
 TMPDIR_SWEEP_FAILED=0   # set at the --tmpdir call site when var-folders-clean.sh reports deletion failures (#1270)
+TIDY_MOVE_FAILURES=0   # incremented by tidy_file_to_bucket/tidy_dir_to_bucket when an archive move fails (#1337)
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
 DOCKER_AGE_DAYS="${DOCKER_AGE_DAYS:-}"  # set = age-scoped docker prune, VM preserved
 PRUNE_UNKNOWN_SCRATCH="${PRUNE_UNKNOWN_SCRATCH:-0}" # opt-in: delete, not just flag, the name-blind catch-all
@@ -1358,7 +1359,20 @@ fi  # DO_CACHES
 if [ "$DO_REPOS" = "1" ]; then
 
 DARGS=()
-if [ -n "$TARGET_PATH" ]; then DARGS+=(--path "$TARGET_PATH"); else DARGS+=(--auto --user "$CALLER_USER"); fi
+if [ -n "$TARGET_PATH" ]; then
+  DARGS+=(--path "$TARGET_PATH")
+elif [ "$(realpath ~)" = "$CALLER_USER_HOME" ]; then
+  # This process's HOME already IS the caller's home, so let
+  # git-discover-repos use $HOME (its default when no --user is
+  # passed). Passing --user here would resolve the account's passwd home instead,
+  # bypassing an overridden HOME -- a test fixture HOME named after a
+  # real user would then scan (and clean) that user's REAL home
+  # (Codex P1 on PR #1342).
+  DARGS+=(--auto)
+else
+  # Root after the sudo re-exec: HOME is root's, so name the caller.
+  DARGS+=(--auto --user "$CALLER_USER")
+fi
 [ -n "$DEPTH_LIMIT" ] && DARGS+=(--depth "$DEPTH_LIMIT")
 [ -n "$FOLLOW" ] && { [ "$FOLLOW" = "1" ] && DARGS+=(--follow) || DARGS+=(--no-follow); }
 
@@ -1839,8 +1853,12 @@ tidy_file_to_bucket() {
   dest="$bucket_root/$year/$month"
   if [ "$DRY_RUN" = "1" ]; then
     echo "  would file away: ${entry/#$CALLER_USER_HOME/\~} -> ${dest/#$CALLER_USER_HOME/\~}/"
-  else
-    mkdir -p "$dest" && mv "$entry" "$dest/" 2>/dev/null
+  elif ! mkdir -p "$dest"; then
+    warn "could not create tidy bucket $dest for $entry"
+    TIDY_MOVE_FAILURES=$((TIDY_MOVE_FAILURES + 1))
+  elif ! mv "$entry" "$dest/" 2>/dev/null; then
+    warn "could not file away $entry -> $dest/"
+    TIDY_MOVE_FAILURES=$((TIDY_MOVE_FAILURES + 1))
   fi
 }
 tidy_dir_to_bucket() {
@@ -1852,8 +1870,12 @@ tidy_dir_to_bucket() {
   dest="$bucket_root/$year/$month"
   if [ "$DRY_RUN" = "1" ]; then
     echo "  would archive: ${dir/#$CALLER_USER_HOME/\~} -> ${dest/#$CALLER_USER_HOME/\~}/$(basename "$dir")/"
-  else
-    mkdir -p "$dest" && mv "$dir" "$dest/" 2>/dev/null
+  elif ! mkdir -p "$dest"; then
+    warn "could not create tidy bucket $dest for $dir"
+    TIDY_MOVE_FAILURES=$((TIDY_MOVE_FAILURES + 1))
+  elif ! mv "$dir" "$dest/" 2>/dev/null; then
+    warn "could not archive $dir -> $dest/"
+    TIDY_MOVE_FAILURES=$((TIDY_MOVE_FAILURES + 1))
   fi
 }
 
@@ -2089,5 +2111,14 @@ print_unknown_scratch_report
 # partially failed sweep no longer ends at exit 0.
 if [ "$TMPDIR_SWEEP_FAILED" = "1" ]; then
   warn "/private/var/folders sweep failed -- clean.sh exiting non-zero"
+  exit 1
+fi
+
+# Failed tidy archive moves fail the run (#1337): tidy_file_to_bucket /
+# tidy_dir_to_bucket counted every failed mkdir/mv above (and warned per
+# entry at the time), so a tidy pass that filed nothing away no longer
+# ends at exit 0 looking exactly like success.
+if [ "$TIDY_MOVE_FAILURES" -gt 0 ]; then
+  warn "opencode tidy: $TIDY_MOVE_FAILURES archive move(s) failed -- clean.sh exiting non-zero"
   exit 1
 fi
