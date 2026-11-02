@@ -44,7 +44,7 @@ MAINT_DEPTH="--deep"
 REPO_FLAGS_USED=""
 USE_SUDO=""          # empty = decide from --dry-run
 CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
-VAR_FOLDERS_ROOT="${VAR_FOLDERS_ROOT:-/private/var/folders}" # the --tmpdir sweep's root (env seam so tests can point it at a fixture)
+VAR_FOLDERS_ROOT="${VAR_FOLDERS_ROOT:-/private/var/folders}" # var-folders root for the --tmpdir sweep AND the opencode scratch tidy/discovery roots below (env seam so tests can point it at a fixture, #1346)
 TMPDIR_SWEEP_FAILED=0   # set at the --tmpdir call site when var-folders-clean.sh reports deletion failures (#1270)
 TIDY_MOVE_FAILURES=0   # incremented by tidy_file_to_bucket/tidy_dir_to_bucket when an archive move fails (#1337)
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
@@ -1952,7 +1952,7 @@ if [ -z "$TARGET_PATH" ]; then
   # sweep: tidy_opencode_loose_files skips anything with its own .git, and
   # clean_opencode_scratch_dir's idle check (clean tree, nothing unpushed,
   # past the age window) is what actually decides a worktree's fate.
-  for _vf_oc in /private/var/folders/*/*/T/opencode; do
+  for _vf_oc in "$VAR_FOLDERS_ROOT"/*/*/T/opencode; do
     [ -d "$_vf_oc" ] || continue
     tidy_opencode_loose_files "$_vf_oc" "$_vf_oc/_loose"
     clean_opencode_scratch_dir "$_vf_oc" "$OPENCODE_TMP_STALE_DAYS" "/private/var/folders T/opencode"

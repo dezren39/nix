@@ -363,6 +363,13 @@ tidy_home="$TMP_ROOT/$(id -un)"
 tidy_base="$tidy_home/.local/share/opencode/tmp/opencode"
 mkdir -p "$tidy_base"
 touch "$tidy_base/loose1.txt"
+# Isolate the macOS scratch roots too (#1346): point VAR_FOLDERS_ROOT at an
+# empty fixture so neither clean.sh's opencode tidy loop nor
+# git-discover-repos' seed scan can reach real host /private/var/folders
+# roots on macOS. Unset again after this section.
+vf_empty="$TMP_ROOT/varfolders-empty"
+mkdir -p "$vf_empty"
+export VAR_FOLDERS_ROOT="$vf_empty"
 orig_home="$HOME"
 export HOME="$tidy_home"
 mv_shim_dir="$TMP_ROOT/mv-shim"
@@ -392,6 +399,52 @@ run --no-system --no-sudo --no-git-maintenance
 [ "$STATUS" -eq 0 ] || fail "tidy success control exited $STATUS (want 0, stderr: $ERR)"
 [ ! -e "$tidy_base/loose1.txt" ] && find "$tidy_base/_loose" -name loose1.txt | grep -q . && echo "ok: success control archived the entry" || fail "success control did not archive the entry"
 export HOME="$orig_home"
+unset VAR_FOLDERS_ROOT
+
+# ─── opencode scratch roots follow VAR_FOLDERS_ROOT (#1346) ──
+# Positive pin: a fixture var-folders root holding a loose file must be
+# tidied, and a git repo under it must be discovered -- proving both
+# enumeration sites follow the override instead of the hardcoded
+# /private/var/folders. Negative pin: with the override pointing at an
+# empty dir, the same fixture content is invisible -- proving a test run
+# pointed at a fixture can never reach real host roots. Production
+# behaviour is unchanged when the override is unset (same default root).
+vf_iso="$TMP_ROOT/varfolders-isolated"
+vf_oc="$vf_iso/aa/bb/T/opencode"
+mkdir -p "$vf_oc"
+touch "$vf_oc/loose-iso.txt"
+mkdir -p "$vf_oc/iso-repo"
+git -C "$vf_oc/iso-repo" init -q 2>/dev/null || fail "could not init fixture scratch repo"
+export VAR_FOLDERS_ROOT="$vf_iso"
+iso_home="$TMP_ROOT/iso-home"
+mkdir -p "$iso_home"
+disc_out="$(HOME="$iso_home" bash "$SELF_DIR/git-discover-repos" --auto --repos-only 2>"$TMP_ROOT/iso-disc-err")"; disc_rc=$?
+[ "$disc_rc" -eq 0 ] || fail "discovery against fixture var root exited $disc_rc: $(cat "$TMP_ROOT/iso-disc-err")"
+case "$disc_out" in
+  *"$vf_oc/iso-repo"*) echo "ok: discovery follows VAR_FOLDERS_ROOT to the fixture scratch root" ;;
+  *) fail "discovery did not find the fixture scratch repo (got: $disc_out)" ;;
+esac
+vf_miss="$TMP_ROOT/varfolders-miss"
+mkdir -p "$vf_miss"
+export VAR_FOLDERS_ROOT="$vf_miss"
+disc_out="$(HOME="$iso_home" bash "$SELF_DIR/git-discover-repos" --auto --repos-only 2>"$TMP_ROOT/iso-disc-err")"; disc_rc=$?
+[ "$disc_rc" -eq 0 ] || fail "discovery against empty var root exited $disc_rc: $(cat "$TMP_ROOT/iso-disc-err")"
+case "$disc_out" in
+  *"$vf_oc/iso-repo"*) fail "discovery leaked the fixture scratch repo with the override pointed elsewhere" ;;
+  *) echo "ok: discovery pointed elsewhere never enumerates the fixture scratch root" ;;
+esac
+# Tidy the fixture var root for real: the loose file must be filed away.
+export VAR_FOLDERS_ROOT="$vf_iso"
+tidy_iso_home="$TMP_ROOT/$(id -un)-iso"
+tidy_iso_base="$tidy_iso_home/.local/share/opencode/tmp/opencode"
+mkdir -p "$tidy_iso_base"
+orig_home2="$HOME"
+export HOME="$tidy_iso_home"
+run --no-system --no-sudo --no-git-maintenance
+[ "$STATUS" -eq 0 ] || fail "tidy against fixture var root exited $STATUS (want 0, stderr: $ERR)"
+[ ! -e "$vf_oc/loose-iso.txt" ] && find "$vf_oc/_loose" -name loose-iso.txt | grep -q . && echo "ok: tidy filed away the fixture scratch loose file" || fail "tidy did not file away the fixture scratch loose file"
+export HOME="$orig_home2"
+unset VAR_FOLDERS_ROOT
 
 # ─── --only-tmpdir survives the privilege re-exec (Codex P1 on #1273) ──
 # The parser consumes "$@" before the privilege block, and ONLY_TMPDIR

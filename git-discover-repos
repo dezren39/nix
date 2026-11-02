@@ -104,7 +104,8 @@ OTHER
 DEFAULT SCAN SET (--auto), mirroring clean.sh's rules
   1. ~/.local/share/opencode/worktree                 (deep)
   2. /private/var/folders/*/*/T/opencode               (deep; second opencode
-     scratch root some sandboxed contexts use instead of ~/.local/share)
+     scratch root some sandboxed contexts use instead of ~/.local/share;
+     override the /private/var/folders parent with VAR_FOLDERS_ROOT in tests)
   3. ~/<dir> where the name is all digits or contains "git"   (deep)
   4. every dir/symlinked dir directly in ~, whatever its name, tested for being
      a repo; if it is one, its .git/ and .worktrees/ are also scanned
@@ -207,6 +208,11 @@ else
   SCAN_HOME="${HOME}"
 fi
 
+# Second opencode scratch root's parent (env seam so tests can point it at
+# a fixture, #1346 — same VAR_FOLDERS_ROOT precedent as clean.sh's
+# --tmpdir sweep; unset means the production /private/var/folders).
+VAR_FOLDERS_ROOT="${VAR_FOLDERS_ROOT:-/private/var/folders}"
+
 # git refuses to touch repos owned by another user; every consumer here is
 # read-only discovery, so assert safety rather than fail.
 git_q() { git -c safe.directory='*' "$@"; }
@@ -308,11 +314,11 @@ seed_auto() {
   scan_deep "$(canon "$SCAN_HOME/.local/share/opencode/worktree")"
   # Second opencode scratch root: some sandboxed contexts default it to
   # $TMPDIR instead of ~/.local/share, so the SAME worktrees/artifacts turn up
-  # a second time at /private/var/folders/*/*/T/opencode -- see clean.sh's
+  # a second time at $VAR_FOLDERS_ROOT/*/*/T/opencode -- see clean.sh's
   # "short-lived scratch" and "opencode scratch dirs" sections for why this
   # one in particular earned a named root instead of being left to --tmpdir.
   local _vf
-  for _vf in /private/var/folders/*/*/T/opencode; do
+  for _vf in "$VAR_FOLDERS_ROOT"/*/*/T/opencode; do
     [ -d "$_vf" ] && scan_deep "$(canon "$_vf")"
   done
   local d b
