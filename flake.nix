@@ -325,11 +325,10 @@ rec {
             (
               old:
               pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-                # SOCK_CLOEXEC is a Linux socket flag; the helper only needs a pair.
-                postPatch = (old.postPatch or "") + ''
-                  substituteInPlace internal/daemon/takeover_test.go \
-                    --replace-fail 'syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC' 'syscall.SOCK_STREAM'
-                '';
+                # (The SOCK_CLOEXEC substituteInPlace patch that used to
+                # live here is gone: upstream fixed the test helper in
+                # developing-today/code#237 (PR #3288), and the pinned
+                # mcpx-src now carries the portable helper.)
                 # The package's own checkPhase runs a bare
                 # `go test -timeout 30m $pkgs`, so checkFlags would be
                 # ignored; put -skip on that line instead.
@@ -376,9 +375,6 @@ rec {
             "TestKeepAliveCallersLoseNoCallsAcrossATakeover"
             "TestRegistryHandoffKeepsTheChildAcrossTheSuccessor"
             "TestRegistryHandoffThatIsNotCommittedRestoresTheChild"
-            # Not a takeover test: the restart it checks happens, but it
-            # verifies the new executable through /proc/<pid>/exe.
-            "TestExecChangeRestartsThatPoolAndNoOther"
           ]
         })$";
         # The fork's own build, with this repo's mcpx on its PATH so the CLI it
