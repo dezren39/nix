@@ -101,7 +101,8 @@ make_block() {
 EOF
   elif [[ -f "$tmpl" ]]; then
     echo "      $name = {"
-    sed 's/^/        /' "$tmpl"
+    sed 's/^/        /' "$tmpl" ||
+      { echo "adopt: cannot read template file '$tmpl'" >&2; return 1; }
     echo "      };"
   else
     [[ "$tmpl" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] ||
