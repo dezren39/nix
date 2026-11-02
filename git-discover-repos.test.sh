@@ -15,6 +15,12 @@
 #   --count / --dry-run    -> same verdicts; valid input unchanged (exit 0)
 #   all-valid --path       -> exit 0, output unchanged
 #
+# #1325 adds the enumeration-failure contract: a find that fails mid-walk
+# (an unreadable subdirectory under an explicitly given --path) is named
+# on stderr and the script exits non-zero, while the repos that were
+# found are still printed. The --find artifact sweep surfaces its own
+# enumeration failures the same way. --auto stays best-effort.
+#
 # This drives the REAL git-discover-repos (no pasted copies) against temp
 # dirs. The fixture repo is a plain directory with a .git directory, which
 # is all discovery's classify() looks for — no git binary needed.
@@ -195,6 +201,73 @@ run --path "$VALID" --dry-run --follow
 run --path "$VALID" --dry-run --no-follow
 [ "$STATUS" -eq 0 ] || fail "single --no-follow exited $STATUS (want 0)"
 echo "ok: single --follow / --no-follow still accepted"
+
+# ─── Enumeration failure under --path is not swallowed (#1325) ─────
+# A find shim fails only for one named scan root, regardless of the
+# privileges the suite runs with (a chmod 000 fixture does not stop
+# root — the #1257 lesson, same pattern as var-folders-clean's #1321
+# shim). The shim first emits the real find's partial output and only
+# then fails, like a real find that walked part of the tree before
+# hitting the unreadable directory.
+PARTIAL="$TMP_ROOT/partial"
+mkdir -p "$PARTIAL/repoA/.git" "$PARTIAL/locked/repoB/.git"
+PARTIAL_CANON="$(cd "$PARTIAL" && pwd -P)"
+find_shim_dir="$TMP_ROOT/find-shim"
+mkdir -p "$find_shim_dir"
+real_find="$(command -v find)"
+make_find_shim() {
+  # $1 = the exact path argument the shimmed find fails on
+  cat > "$find_shim_dir/find" <<SHIM_EOF
+#!/bin/sh
+for arg in "\$@"; do
+  if [ "\$arg" = "$1" ]; then
+    $real_find "\$@" 2>/dev/null
+    echo "find: $1/locked: Permission denied (shimmed failure)" >&2
+    exit 1
+  fi
+done
+exec $real_find "\$@"
+SHIM_EOF
+  chmod +x "$find_shim_dir/find"
+}
+
+make_find_shim "$PARTIAL_CANON"
+OUT="$(PATH="$find_shim_dir:$PATH" "$SCRIPT" --path "$PARTIAL" 2>"$TMP_ROOT/err")"; STATUS=$?
+ERR="$(cat "$TMP_ROOT/err")"
+[ "$STATUS" -ne 0 ] || fail "enumeration failure under --path exited 0 (#1325)"
+case "$ERR" in *"failed to enumerate: $PARTIAL_CANON"*) echo "ok: enumeration failure named on stderr" ;; *) fail "enumeration failure not named on stderr (got: $ERR)" ;; esac
+case "$OUT" in *"repo"$'\t'"$PARTIAL_CANON/repoA"*) echo "ok: repos found before the failure still printed" ;; *) fail "partial run did not list repoA (got: $OUT)" ;; esac
+
+# ─── --find sweep surfaces its own enumeration failures (#1325) ─────
+# Same shim, keyed on the discovered repo's path — the only find the
+# sweep runs is on each discovered location, so a failure there is the
+# sweep's own, not seeding's.
+SWEEP="$TMP_ROOT/sweep"
+mkdir -p "$SWEEP/repoA/.git" "$SWEEP/repoA/.trash"
+SWEEP_CANON="$(cd "$SWEEP" && pwd -P)"
+make_find_shim "$SWEEP_CANON/repoA"
+OUT="$(PATH="$find_shim_dir:$PATH" "$SCRIPT" --path "$SWEEP" --find trash 2>"$TMP_ROOT/err")"; STATUS=$?
+ERR="$(cat "$TMP_ROOT/err")"
+[ "$STATUS" -ne 0 ] || fail "--find sweep enumeration failure exited 0 (#1325)"
+case "$ERR" in *"failed to enumerate artifacts under: $SWEEP_CANON/repoA"*) echo "ok: sweep enumeration failure named on stderr" ;; *) fail "sweep enumeration failure not named on stderr (got: $ERR)" ;; esac
+case "$OUT" in *"FOUND"$'\t'"trash"*) echo "ok: sweep hits found before the failure still printed" ;; *) fail "sweep partial run did not print its FOUND hit (got: $OUT)" ;; esac
+rm -f "$find_shim_dir/find"
+
+# ─── Real unreadable subdirectory (the #1325 probe, non-root only) ──
+# chmod 000 does not stop root, so this real-fixture check runs only
+# for a non-root suite; the shim cases above pin the contract either
+# way.
+if [ "$(id -u)" -ne 0 ]; then
+  LOCKED="$TMP_ROOT/locked"
+  mkdir -p "$LOCKED/repoA/.git" "$LOCKED/locked/repoB/.git"
+  LOCKED_CANON="$(cd "$LOCKED" && pwd -P)"
+  chmod 000 "$LOCKED/locked"
+  run --path "$LOCKED"
+  chmod 755 "$LOCKED/locked"
+  [ "$STATUS" -ne 0 ] || fail "unreadable subdirectory under --path exited 0 (#1325)"
+  case "$ERR" in *"$LOCKED_CANON/locked"*) echo "ok: unreadable directory named on stderr" ;; *) fail "unreadable directory not named on stderr (got: $ERR)" ;; esac
+  case "$OUT" in *"repo"$'\t'"$LOCKED_CANON/repoA"*) echo "ok: readable repo still listed beside the unreadable directory" ;; *) fail "unreadable-dir run did not list repoA (got: $OUT)" ;; esac
+fi
 
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for git-discover-repos, driven through
