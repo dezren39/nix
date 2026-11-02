@@ -1359,7 +1359,20 @@ fi  # DO_CACHES
 if [ "$DO_REPOS" = "1" ]; then
 
 DARGS=()
-if [ -n "$TARGET_PATH" ]; then DARGS+=(--path "$TARGET_PATH"); else DARGS+=(--auto --user "$CALLER_USER"); fi
+if [ -n "$TARGET_PATH" ]; then
+  DARGS+=(--path "$TARGET_PATH")
+elif [ "$(realpath ~)" = "$CALLER_USER_HOME" ]; then
+  # This process's HOME already IS the caller's home, so let
+  # git-discover-repos use $HOME (its default when no --user is
+  # passed). Passing --user here would resolve the account's passwd home instead,
+  # bypassing an overridden HOME -- a test fixture HOME named after a
+  # real user would then scan (and clean) that user's REAL home
+  # (Codex P1 on PR #1342).
+  DARGS+=(--auto)
+else
+  # Root after the sudo re-exec: HOME is root's, so name the caller.
+  DARGS+=(--auto --user "$CALLER_USER")
+fi
 [ -n "$DEPTH_LIMIT" ] && DARGS+=(--depth "$DEPTH_LIMIT")
 [ -n "$FOLLOW" ] && { [ "$FOLLOW" = "1" ] && DARGS+=(--follow) || DARGS+=(--no-follow); }
 

@@ -351,9 +351,14 @@ unset VAR_FOLDERS_ROOT
 # entry, print the failure count, exit non-zero, and leave the entry in
 # place. The success control (real mv) must archive it and exit 0.
 # The fixture HOME's basename must be a real user: clean.sh derives
-# CALLER_USER from it and git-discover-repos refuses a nonexistent user
-# ("no home for home"), so this section runs under its own HOME named
-# after the current user.
+# CALLER_USER from it, so this section runs under its own HOME named
+# after the current user. Discovery must still scan ONLY this fixture
+# HOME: clean.sh omits --user when HOME already equals
+# CALLER_USER_HOME, because git-discover-repos --user resolves the
+# passwd home and would clean the real user's actual repositories
+# (Codex P1 on PR #1342). The "0 repos" assertion below pins that:
+# on any developer machine the real home holds repos, so a discovery
+# leak makes the count non-zero.
 tidy_home="$TMP_ROOT/$(id -un)"
 tidy_base="$tidy_home/.local/share/opencode/tmp/opencode"
 mkdir -p "$tidy_base"
@@ -378,6 +383,10 @@ case "$ERR" in
   *) fail "tidy failure summary did not name the count on stderr (got: $ERR)" ;;
 esac
 [ -e "$tidy_base/loose1.txt" ] && echo "ok: failed entry left in place" || fail "failed entry was archived anyway"
+case "$OUT" in
+  *"0 repos, 0 worktrees"*) echo "ok: tidy run discovery stayed inside the fixture HOME" ;;
+  *) fail "tidy run discovery was not isolated to the fixture HOME (got: $OUT)" ;;
+esac
 # Success control: same fixture, real mv -- archived, exit 0.
 run --no-system --no-sudo --no-git-maintenance
 [ "$STATUS" -eq 0 ] || fail "tidy success control exited $STATUS (want 0, stderr: $ERR)"
