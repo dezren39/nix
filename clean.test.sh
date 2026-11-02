@@ -342,6 +342,48 @@ unset VAR_FOLDERS_ROOT
 [ "$STATUS" -eq 0 ] || fail "--tmpdir success control exited $STATUS (want 0, stderr: $ERR)"
 [ ! -e "$vf2/aa" ] && [ ! -e "$vf2/zz/file2" ] && echo "ok: success control swept the fixture" || fail "success control did not sweep the fixture"
 
+# ─── Tidy archive-move failures surface in clean.sh's result (#1337) ──
+# tidy_file_to_bucket / tidy_dir_to_bucket used to run
+# `mkdir -p "$dest" && mv "$entry" "$dest/" 2>/dev/null` unchecked, so a
+# failed archive move left the entry in place, printed nothing, and the
+# run exited 0. Drive the real tidy pass (repo half only, fixture HOME)
+# with a PATH-stub mv that always fails: clean.sh must warn naming the
+# entry, print the failure count, exit non-zero, and leave the entry in
+# place. The success control (real mv) must archive it and exit 0.
+# The fixture HOME's basename must be a real user: clean.sh derives
+# CALLER_USER from it and git-discover-repos refuses a nonexistent user
+# ("no home for home"), so this section runs under its own HOME named
+# after the current user.
+tidy_home="$TMP_ROOT/$(id -un)"
+tidy_base="$tidy_home/.local/share/opencode/tmp/opencode"
+mkdir -p "$tidy_base"
+touch "$tidy_base/loose1.txt"
+orig_home="$HOME"
+export HOME="$tidy_home"
+mv_shim_dir="$TMP_ROOT/mv-shim"
+mkdir -p "$mv_shim_dir"
+printf '#!%s\nexit 1\n' "$(command -v bash)" > "$mv_shim_dir/mv"
+chmod +x "$mv_shim_dir/mv"
+OLD_PATH="$PATH"
+PATH="$mv_shim_dir:$PATH"
+run --no-system --no-sudo --no-git-maintenance
+PATH="$OLD_PATH"
+[ "$STATUS" -ne 0 ] || fail "tidy with a failing mv exited $STATUS (want non-zero)"
+case "$ERR" in
+  *"could not file away"*"loose1.txt"*) echo "ok: tidy failure warned naming the entry" ;;
+  *) fail "tidy failure did not name the entry on stderr (got: $ERR)" ;;
+esac
+case "$ERR" in
+  *"1 archive move(s) failed"*) echo "ok: tidy failure summary named the count" ;;
+  *) fail "tidy failure summary did not name the count on stderr (got: $ERR)" ;;
+esac
+[ -e "$tidy_base/loose1.txt" ] && echo "ok: failed entry left in place" || fail "failed entry was archived anyway"
+# Success control: same fixture, real mv -- archived, exit 0.
+run --no-system --no-sudo --no-git-maintenance
+[ "$STATUS" -eq 0 ] || fail "tidy success control exited $STATUS (want 0, stderr: $ERR)"
+[ ! -e "$tidy_base/loose1.txt" ] && find "$tidy_base/_loose" -name loose1.txt | grep -q . && echo "ok: success control archived the entry" || fail "success control did not archive the entry"
+export HOME="$orig_home"
+
 # ─── --only-tmpdir survives the privilege re-exec (Codex P1 on #1273) ──
 # The parser consumes "$@" before the privilege block, and ONLY_TMPDIR
 # was neither skipped past brew_cleanup nor carried into the sudo
