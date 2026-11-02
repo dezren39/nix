@@ -270,6 +270,12 @@ while [[ $# -gt 0 ]]; do
         # NOTE (#1220): an empty value counts toward the #912 guard but
         # silently changes the filter; reject it at parse time.
         [[ -n "$1" ]] || { echo "Error: --regex requires a non-empty value" >&2; exit 1; }
+        # NOTE (#1254): an invalid ERE makes bash =~ return status 2 in
+        # name_matches_filters, which collapses into "no match" (exit 0).
+        # Validate at parse time: status 2 against an empty string means
+        # the pattern itself does not compile (0/1 are match/no-match).
+        [[ "" =~ $1 ]] 2>/dev/null; regex_status=$?
+        (( regex_status != 2 )) || { echo "Error: --regex pattern is not a valid regular expression: $1" >&2; exit 1; }
         FILTER_REGEX+=("$1"); shift
       done
       [[ ${#FILTER_REGEX[@]} -gt $before ]] || { echo "Error: --regex requires at least one value" >&2; exit 1; }

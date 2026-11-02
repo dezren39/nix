@@ -519,6 +519,41 @@ else
 fi
 grep -q "2 to create" "$M/ok.log" || fail "M: readable input no longer scans both entries: $(cat "$M/ok.log")"
 
+# ─── Scenario N (#1254): invalid --regex pattern errors at parse time ───
+# An invalid ERE used to collapse into "no match" in name_matches_filters
+# (bash =~ status 2), so `--regex '['` reported "Nothing matched" and
+# exited 0, indistinguishable from a valid pattern matching nothing.
+N="$TMP_ROOT/n"; mkdir -p "$N/in" "$N/out" "$N/cache"
+printf 'x\n' > "$N/in/alpha"; printf 'x\n' > "$N/in/beta"
+n_run() { XDG_CACHE_HOME="$N/cache" bash "$SCRIPT" --input-dir "$N/in" --output-dir "$N/out" --dry-run --no-input "$@" >"$N/out.log" 2>"$N/err"; }
+n_expect_error() { # n_expect_error <desc> <pattern> <args...>
+  local desc="$1" pat="$2"; shift 2
+  if n_run "$@"; then
+    fail "N: $desc — expected non-zero exit, got 0"
+  elif grep -qF -- "$pat" "$N/err"; then
+    echo "ok: N: $desc"
+  else
+    fail "N: $desc — expected stderr naming '$pat', got: $(cat "$N/err")"
+  fi
+}
+n_expect_error "invalid --regex '[' errors naming the pattern" "[" --regex '['
+n_expect_error "invalid --regex '(' errors naming the pattern" "(" --regex '('
+n_expect_error "invalid --regex 'a{2,1}' errors naming the pattern" "a{2,1}" --regex 'a{2,1}'
+n_expect_error "invalid second --regex value errors naming that pattern" "[" --regex '^alpha' '['
+check "N: rejected invalid patterns wrote no links" test -z "$(ls -A "$N/out")"
+if n_run --regex '^zzz'; then
+  echo "ok: N: valid no-match --regex still exits 0"
+else
+  fail "N: valid no-match --regex should exit 0: $(cat "$N/err")"
+fi
+grep -q "Nothing matched" "$N/out.log" || fail "N: valid no-match no longer prints Nothing matched: $(cat "$N/out.log")"
+if n_run --regex '^alpha'; then
+  echo "ok: N: valid matching --regex still exits 0"
+else
+  fail "N: valid matching --regex should exit 0: $(cat "$N/err")"
+fi
+grep -q "1 to create" "$N/out.log" || fail "N: valid matching --regex no longer plans 1 link: $(cat "$N/out.log")"
+
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2
   exit 1
