@@ -19,7 +19,11 @@ fail() { echo "FAIL: $1" >&2; failures=$((failures + 1)); }
 ok() { echo "ok: $1"; }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+cleanup() {
+  chmod -R u+rwx "$WORK" 2>/dev/null || true
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
 PRUNE=./opencode-db-backup-prune.sh
 
 make_tree() {
@@ -195,6 +199,49 @@ ok "--keep 0 rejected (newest backup can never be deleted)"
 out="$(bash "$PRUNE" --dir "$WORK/does-not-exist" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] || fail "missing dir should be a no-op success, got rc=$rc: $out"
 ok "missing backup dir is a no-op success"
+
+# An existing path that is not a directory is an error, not the missing-dir
+# no-op. Use a regular file so this is portable across hosts.
+B="$WORK/not-a-directory"; echo fixture > "$B"
+out="$(bash "$PRUNE" --dir "$B" 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] || fail "non-directory backup path exited $rc, expected 2: $out"
+printf '%s' "$out" | grep -q "backup path is not a directory: $B" \
+  || fail "non-directory path was not named on stderr: $out"
+ok "existing non-directory backup path is rejected"
+
+# An unreadable backup directory must fail before either dry-run listing or
+# deletion. chmod 000 exercises the real permission case for unprivileged
+# runs; the ls shim makes the same failure deterministic when tests run as
+# root (which can bypass mode bits).
+B="$WORK/unreadable"; make_tree "$B"; chmod 000 "$B"
+LS_SHIM="$WORK/ls-shim"; mkdir -p "$LS_SHIM"
+REAL_LS="$(command -v ls)"
+cat > "$LS_SHIM/ls" <<'LS_SHIM_EOF'
+#!/bin/sh
+if [ "${1:-}" = "-A" ] && [ "${2:-}" = "$UNREADABLE_DIR" ]; then
+  echo "ls: simulated permission denied" >&2
+  exit 1
+fi
+exec "$REAL_LS" "$@"
+LS_SHIM_EOF
+chmod +x "$LS_SHIM/ls"
+for mode in dry-run apply; do
+  if [ "$mode" = apply ]; then
+    out="$(UNREADABLE_DIR="$B" REAL_LS="$REAL_LS" PATH="$LS_SHIM:$PATH" bash "$PRUNE" --dir "$B" --keep 1 --apply 2>&1)"; rc=$?
+  else
+    out="$(UNREADABLE_DIR="$B" REAL_LS="$REAL_LS" PATH="$LS_SHIM:$PATH" bash "$PRUNE" --dir "$B" --keep 1 --dry-run 2>&1)"; rc=$?
+  fi
+  [ "$rc" -eq 2 ] || fail "unreadable dir $mode exited $rc, expected 2: $out"
+  printf '%s' "$out" | grep -q "cannot enumerate backup dir: $B" \
+    || fail "unreadable dir $mode was not named: $out"
+  if printf '%s' "$out" | grep -Eq '0 backup\(s\)|would delete:|deleted:'; then
+    fail "unreadable dir $mode reported a successful prune/listing: $out"
+  fi
+done
+chmod u+rwx "$B"
+[ "$(listing "$B")" = "20260101T000000 20260201T000000 20260301T000000 20260401T000000 20260501T000000 loose-file.txt not-a-backup " ] \
+  || fail "unreadable-dir checks changed the tree: $(listing "$B")"
+ok "unreadable backup dir fails in dry-run and apply without changing backups"
 
 out="$(bash "$PRUNE" --keep --apply 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q -- "--keep" \
