@@ -37,3 +37,9 @@
 **Learning:** `follows_exists_in_content` and `follows_path_has_any_target` are called repeatedly during deduplication, merge, and flattening proposal checks. In uncached line loops, processing every non-comment line through whitespace collapsing and attribute unquoting wastes CPU time on irrelevant lines; adding an early check (`"follows" not in stripped`) bypasses all normalization overhead for lines that cannot possibly match. Furthermore, caching the pure query results via `@functools.lru_cache` on inner functions accepting `tuple[str, ...]` yields a ~35x speedup on repeated lookups while preserving list argument compatibility for callers.
 
 **Action:** Add fast substring checks in line-iteration loops to reject irrelevant lines before running costly string normalizations, and memoize pure query functions that accept list parameters by wrapping a tuple-based inner function with `@functools.lru_cache`.
+
+## 2026-11-02 - Precompute Root Equivalence Sets in Flatten Analysis and Memoize URL Authority Canonicalization
+
+**Learning:** `analyze_flatten` iterated over every candidate transitive input node and executed an inner loop over all `root_inputs`, repeatedly recomputing `source_key(rdata)` and `locked_hash(rdata)` on every iteration (an O(M × R) anti-pattern). Precomputing root input source keys and hashes once into sets reduces the inner loop to an O(1) set lookup. Additionally, memoizing `_canonicalize_url_authority` via `@functools.lru_cache` yields an ~18x speedup on repeated URL authority canonicalizations.
+
+**Action:** When matching items against a reference collection in graph/lock analysis, precompute grouping keys and hashes into sets upfront instead of recomputing them within nested loops, and memoize string normalization utilities that parse URL authorities.
