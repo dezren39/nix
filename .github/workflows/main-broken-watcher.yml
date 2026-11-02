@@ -22,12 +22,22 @@ name: main-broken watcher
 # Hybrid pm-dispatch migration (developing-today/code#2672): the issue
 # creation stays in this workflow because the pm-stack GitHub App is
 # not installed on dezren39/nix, so pm-dispatch cannot create issues
-# here. The queue enqueue moves to the pm-dispatch-queue action
-# (developing-today/code/.github/actions/pm-dispatch-queue@main), so
-# the fix task exists at filing time instead of waiting for the fleet
-# monitor to enqueue it from the `queue/queued` label. If that enqueue
-# step fails, the agent-note says so and the fleet monitor fallback
+# here. The queue enqueue calls pm-dispatch directly, so the fix task
+# exists at filing time instead of waiting for the fleet monitor to
+# enqueue it from the `queue/queued` label. If that enqueue step
+# fails, the agent-note says so and the fleet monitor fallback
 # (enqueue from the `queue/queued` label) applies as before.
+#
+# The enqueue was originally the pm-dispatch-queue composite action
+# (developing-today/code/.github/actions/pm-dispatch-queue@main), but
+# it is inlined here since 2026-11-02 (#1350): every job that
+# references a developing-today/code action fails at "Set up job"
+# because the runner cannot download that repo's action archive
+# ("Could not find file '.../_staging/code-<sha>/archive'"), across
+# many SHAs since at least 2026-11-01, while the same repo's REST
+# tarball/zipball download fine. The composite action is a single
+# bash step (mint an OIDC token, POST /v1/tasks), so inlining it
+# removes the broken download without changing the enqueue.
 
 "on":
   workflow_run:
@@ -160,22 +170,75 @@ jobs:
         id: enqueue
         if: steps.file.outputs.issue_number != ''
         continue-on-error: true
-        uses: developing-today/code/.github/actions/pm-dispatch-queue@main
-        with:
-          repo: dezren39/nix
-          title: ${{ steps.file.outputs.issue_title }}
-          prompt: |
-            Investigate and fix the main breakage filed as dezren39/nix issue #${{ steps.file.outputs.issue_number }} (${{ steps.file.outputs.issue_url }}).
+        env:
+          INPUT_REPO: dezren39/nix
+          INPUT_TITLE: ${{ steps.file.outputs.issue_title }}
+          ISSUE_NUMBER: ${{ steps.file.outputs.issue_number }}
+          ISSUE_URL: ${{ steps.file.outputs.issue_url }}
+          BREAKAGE_ID: ${{ steps.file.outputs.breakage_id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          # Inlined from developing-today/code's pm-dispatch-queue
+          # composite action (#1350; see the header comment). Same
+          # payload and outputs as the action: mint a GitHub Actions
+          # OIDC token (audience pm-dispatch; this job grants
+          # id-token: write) and POST /v1/tasks, attaching the task
+          # to the issue filed by the step above (issue_number takes
+          # precedence; no new issue is created).
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::pm-dispatch enqueue: ACTIONS_ID_TOKEN_REQUEST_URL / ACTIONS_ID_TOKEN_REQUEST_TOKEN are not set. The calling job must grant 'permissions: id-token: write' so an OIDC token can be minted." >&2
+            exit 1
+          fi
+          prompt_text="$(cat <<EOF
+          Investigate and fix the main breakage filed as dezren39/nix issue #${ISSUE_NUMBER} (${ISSUE_URL}).
 
-            Workflow: ${{ github.event.workflow_run.name }}
-            Run: ${{ github.event.workflow_run.html_url }}
-            Breakage-ID: ${{ steps.file.outputs.breakage_id }}
-            First error excerpt: see the "First error excerpt" section of the breakage issue body (${{ steps.file.outputs.issue_url }}).
+          Workflow: ${WORKFLOW_NAME}
+          Run: ${RUN_URL}
+          Breakage-ID: ${BREAKAGE_ID}
+          First error excerpt: see the "First error excerpt" section of the breakage issue body (${ISSUE_URL}).
 
-            Reproduce the failing workflow jobs from that run, find the root cause, and land a fix so the workflow passes on main again. Keep the fix scoped to the breakage.
-          priority: "critical"
-          kind: ci_investigation
-          issue_number: ${{ steps.file.outputs.issue_number }}
+          Reproduce the failing workflow jobs from that run, find the root cause, and land a fix so the workflow passes on main again. Keep the fix scoped to the breakage.
+          EOF
+          )"
+          oidc_token="$(curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pm-dispatch" | jq -r '.value // empty')"
+          if [ -z "$oidc_token" ]; then
+            echo "::error::pm-dispatch enqueue: failed to mint a GitHub Actions OIDC token (audience pm-dispatch)." >&2
+            exit 1
+          fi
+          payload="$(jq -n \
+            --arg repo "$INPUT_REPO" \
+            --arg title "$INPUT_TITLE" \
+            --arg prompt "$prompt_text" \
+            --arg priority "critical" \
+            --arg kind "ci_investigation" \
+            --argjson issue_number "$ISSUE_NUMBER" \
+            '{repo: $repo, title: $title, prompt: $prompt, issue: true, priority: $priority, kind: $kind, issue_number: $issue_number}')"
+          response="$(curl -sS -w $'\n%{http_code}' -X POST "https://dispatch.security.cab/v1/tasks" \
+            -H "Authorization: Bearer $oidc_token" \
+            -H "Content-Type: application/json" \
+            -d "$payload")"
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::pm-dispatch enqueue: pm-dispatch POST /v1/tasks failed (HTTP $http_code):" >&2
+            echo "$body" >&2
+            exit 1
+          fi
+          echo "$body"
+          task_id="$(printf '%s' "$body" | jq -r '.task_id // empty')"
+          out_issue_number="$(printf '%s' "$body" | jq -r '.issue_number // empty')"
+          issue_url_out="$(printf '%s' "$body" | jq -r '.issue_url // empty')"
+          if [ -z "$issue_url_out" ] && [ -n "$out_issue_number" ]; then
+            issue_url_out="https://github.com/${INPUT_REPO}/issues/${out_issue_number}"
+          fi
+          {
+            echo "task_id=$task_id"
+            echo "issue_number=$out_issue_number"
+            echo "issue_url=$issue_url_out"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Post the agent-note comment
         if: steps.file.outputs.issue_number != ''
