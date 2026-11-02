@@ -78,7 +78,20 @@ if [ -n "$MAX_AGE_DAYS" ]; then
   arg_decimal MAX_AGE_DAYS --max-age-days "$MAX_AGE_DAYS" non-negative
 fi
 
-[ -d "$DIR" ] || { echo "opencode-db-backup-prune: no backup dir at $DIR — nothing to do"; exit 0; }
+if [ -e "$DIR" ] || [ -L "$DIR" ]; then
+  [ -d "$DIR" ] || die "backup path is not a directory: $DIR"
+else
+  echo "opencode-db-backup-prune: no backup dir at $DIR — nothing to do"
+  exit 0
+fi
+
+# A directory can exist but still be impossible to enumerate. Check both
+# the shell's access view and an actual directory listing before the glob
+# below: an unreadable directory otherwise expands to no candidates and
+# looks like a successful empty backup set.
+if [ ! -r "$DIR" ] || [ ! -x "$DIR" ] || ! ls -A "$DIR" >/dev/null 2>&1; then
+  die "cannot enumerate backup dir: $DIR"
+fi
 
 # A digit-shaped name is not necessarily a timestamp (#1261): month 13,
 # Feb 30, hour 24 etc. can never come from the backup writer's
