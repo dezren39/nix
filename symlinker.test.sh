@@ -40,6 +40,14 @@
 #          input reported "Nothing found". Unresolvable entries are now
 #          named in an Unresolvable report and counted in the summary;
 #          they are still never linked. Scenario L pins this.
+#   #1335 — the forward scan read its input find enumeration from a
+#          process substitution, whose exit status cannot reach the
+#          script, so a failed enumeration (an execute-only input dir
+#          passes the cd validation but cannot be listed) ran the loop
+#          zero times and reported "Nothing found" at exit 0. The
+#          enumeration is now captured to a file and its status
+#          checked (#1325 pattern): a failure exits non-zero with
+#          symlinker's own stderr error. Scenario M pins this.
 # This drives the REAL symlinker.sh (no pasted copies) against temp dirs.
 # The #886 scenario stubs `date` so every invocation lands in the same
 # "second" deterministically.
@@ -444,6 +452,72 @@ else
   echo "ok: L: broken-only output does not print Nothing found"
 fi
 check "L: broken-only run linked nothing" test -z "$(ls -A "$L/out2")"
+
+# ─── Scenario M (#1335): failed find enumeration is not "Nothing found" ──
+# The scan loop fed from a process substitution carrying find's output,
+# so a failed enumeration reached neither the exit code nor the
+# report: an execute-only --input-dir (cd-able, not listable) printed
+# "Nothing found" and exited 0. A find shim fails only for the exact
+# canonical input path, regardless of the privileges the suite runs
+# with (a chmod fixture does not stop root — the #1257 lesson, same
+# pattern as git-discover-repos' #1325 shim); a real execute-only
+# fixture pins the probe case for non-root suites.
+M="$TMP_ROOT/m"; mkdir -p "$M/in" "$M/empty" "$M/out" "$M/out2" "$M/cache"
+printf 'x\n' > "$M/in/alpha"
+printf 'y\n' > "$M/in/beta"
+M_CANON="$(cd "$M/in" && pwd -P)"
+m_run() { XDG_CACHE_HOME="$M/cache" bash "$SCRIPT" "$@"; }
+m_find_shim_dir="$TMP_ROOT/m-find-shim"; mkdir -p "$m_find_shim_dir"
+m_real_find="$(command -v find)"
+cat > "$m_find_shim_dir/find" <<SHIM_EOF
+#!/bin/sh
+for arg in "\$@"; do
+  if [ "\$arg" = "$M_CANON" ]; then
+    echo "find: $M_CANON: Permission denied (shimmed failure)" >&2
+    exit 1
+  fi
+done
+exec $m_real_find "\$@"
+SHIM_EOF
+chmod +x "$m_find_shim_dir/find"
+if PATH="$m_find_shim_dir:$PATH" XDG_CACHE_HOME="$M/cache" bash "$SCRIPT" --input-dir "$M/in" --output-dir "$M/out" --dry-run --no-input >"$M/fail.log" 2>"$M/fail.err"; then
+  fail "M: failed enumeration should exit non-zero: $(cat "$M/fail.log")"
+else
+  echo "ok: M: failed enumeration exits non-zero"
+fi
+grep -q "failed to enumerate: $M_CANON" "$M/fail.err" || fail "M: failed enumeration not named as symlinker's own error on stderr: $(cat "$M/fail.err")"
+if grep -q "Nothing found" "$M/fail.log"; then
+  fail "M: failed enumeration still prints Nothing found"
+else
+  echo "ok: M: failed enumeration does not print Nothing found"
+fi
+check "M: failed enumeration linked nothing" test -z "$(ls -A "$M/out")"
+rm -f "$m_find_shim_dir/find"
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 111 "$M/in"
+  if m_run --input-dir "$M/in" --output-dir "$M/out" --dry-run --no-input >"$M/real.log" 2>"$M/real.err"; then
+    fail "M: execute-only input should exit non-zero: $(cat "$M/real.log")"
+  else
+    echo "ok: M: execute-only input exits non-zero"
+  fi
+  chmod 755 "$M/in"
+  grep -q "failed to enumerate:" "$M/real.err" || fail "M: execute-only failure not named on stderr: $(cat "$M/real.err")"
+  if grep -q "Nothing found" "$M/real.log"; then
+    fail "M: execute-only run still prints Nothing found"
+  fi
+fi
+if m_run --input-dir "$M/empty" --output-dir "$M/out2" --dry-run --no-input >"$M/empty.log" 2>&1; then
+  echo "ok: M: empty input exits 0"
+else
+  fail "M: empty input should exit 0: $(cat "$M/empty.log")"
+fi
+grep -q "Nothing found" "$M/empty.log" || fail "M: empty input no longer prints Nothing found"
+if m_run --input-dir "$M/in" --output-dir "$M/out" --dry-run --no-input >"$M/ok.log" 2>&1; then
+  echo "ok: M: readable input exits 0"
+else
+  fail "M: readable input should exit 0: $(cat "$M/ok.log")"
+fi
+grep -q "2 to create" "$M/ok.log" || fail "M: readable input no longer scans both entries: $(cat "$M/ok.log")"
 
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2

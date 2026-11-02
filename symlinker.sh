@@ -943,6 +943,31 @@ create_links=();   create_targets=()
 conflict_links=(); conflict_targets=()
 unresolvable_links=(); unresolvable_targets=()
 
+# Capture the input enumeration to a file and check find's status
+# before scanning (#1335, the #1325 find-to-file pattern): the scan
+# used to read find's output through a process substitution, whose
+# exit status cannot reach the script, so a failed enumeration (e.g.
+# an execute-only --input-dir, which passes the cd validation above
+# but cannot be listed) ran the loop zero times and fell into the
+# "Nothing found" all-clear at exit 0. find's stderr is captured too,
+# so the failure is named alongside symlinker's own error.
+scan_list="$(mktemp)"
+scan_err="$(mktemp)"
+if ! find "$INPUT_DIR" -mindepth 1 -maxdepth 1 -print0 >"$scan_list" 2>"$scan_err"; then
+  cat "$scan_err" >&2
+  echo "Error: failed to enumerate: $INPUT_DIR" >&2
+  rm -f "$scan_list" "$scan_err"
+  exit 1
+fi
+rm -f "$scan_err"
+scan_sorted="$(mktemp)"
+if ! sort -z "$scan_list" >"$scan_sorted"; then
+  echo "Error: failed to sort enumeration of: $INPUT_DIR" >&2
+  rm -f "$scan_list" "$scan_sorted"
+  exit 1
+fi
+rm -f "$scan_list"
+
 while IFS= read -r -d '' entry; do
   name="$(basename "$entry")"
 
@@ -992,7 +1017,8 @@ while IFS= read -r -d '' entry; do
   else
     create_links+=("$link");      create_targets+=("$target")
   fi
-done < <(find "$INPUT_DIR" -mindepth 1 -maxdepth 1 -print0 | sort -z)
+done < "$scan_sorted"
+rm -f "$scan_sorted"
 
 total=$(( ${#skip_links[@]} + ${#create_links[@]} + ${#conflict_links[@]} ))
 if (( total == 0 )) && (( ${#unresolvable_links[@]} > 0 )); then
