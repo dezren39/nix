@@ -35,6 +35,7 @@ name: buffer-backup lock sync
       - ".github/workflows/buffer-backup-renovate-bun-sync.yml"
       - "pkgs/bun-bin/hashes.json"
       - "pkgs/bun-bin/check-pin-sync.py"
+  workflow_dispatch:
 
 permissions:
   contents: read
