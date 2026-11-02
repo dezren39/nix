@@ -237,4 +237,9 @@ fi
 printf 'spotlight-exclude-artifacts: %d marked, %d already, %d absent, %d need root, %d failed\n' \
   "$created" "$existing" "$skipped" "$needroot" "$failed"
 [ "${DISCOVERY_FAILED:-0}" = "1" ] && exit 1
+# A failed marker write must be loud too (#1333): mark() counted it in
+# the summary, but the run used to exit 0, so callers saw a green run
+# while a tree stayed indexed. needroot/skipped stay non-fatal -- they
+# never increment failed.
+[ "$failed" -gt 0 ] && exit 1
 exit 0

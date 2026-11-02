@@ -225,5 +225,72 @@ for bad in abc 0 2147483648 99999999999999999999999999; do
 done
 probe_accepted --no-system --path "$VALID" --depth 08 --dry-run
 
+
+# ─── Failed marker writes exit non-zero (#1333) ─────────────────────
+# mark() counted a failed touch in the summary ("N failed") but the
+# exit path only honoured DISCOVERY_FAILED, so the run exited 0.
+# Fixture: a dangling marker symlink -- [ -e ] is false, touch follows
+# the symlink and fails on a writable directory, so the needroot case
+# does not apply and the write increments failed.
+# Walk half: repo1's .git carries the dangling marker; repo2 is clean
+# and must still be marked (no early abort).
+WALKFAIL="$TMP_ROOT/walkfail"
+mkdir -p "$WALKFAIL/repo1/.git" "$WALKFAIL/repo2/.git"
+ln -s "/nonexistent-spotlight-1333/marker" "$WALKFAIL/repo1/.git/$MARKER"
+run --no-system --path "$WALKFAIL" --depth 2
+[ "$STATUS" -eq 1 ] || fail "walk failing-write run exited $STATUS (want 1)"
+case "$ERR" in
+  *"cannot write $WALKFAIL/repo1/.git/$MARKER"*) echo "ok: walk failing write named on stderr" ;;
+  *) fail "walk failing write not named on stderr (got: $ERR)" ;;
+esac
+case "$OUT" in
+  *"1 failed"*) echo "ok: walk failing run summary reports 1 failed" ;;
+  *) fail "walk failing run summary did not report 1 failed (got: $OUT)" ;;
+esac
+[ -e "$WALKFAIL/repo2/.git/$MARKER" ] && echo "ok: walk failing run still marked the clean repo" || fail "walk failing run did not mark the clean repo (early abort?)"
+# Clean control: remove the dangling marker and the same walk exits 0.
+rm "$WALKFAIL/repo1/.git/$MARKER"
+run --no-system --path "$WALKFAIL" --depth 2
+[ "$STATUS" -eq 0 ] || fail "walk clean control exited $STATUS (want 0, stderr: $ERR)"
+case "$OUT" in
+  *"0 failed"*) echo "ok: walk clean control exits 0 with 0 failed" ;;
+  *) fail "walk clean control summary changed (got: $OUT)" ;;
+esac
+
+# System half: same dangling-marker fixture in $HOME/.cache, with a
+# clean $HOME/.bun after it in STATIC_PATHS (must still be marked).
+# Assertions on the count are loose here: real system paths outside
+# the fixture HOME (/nix, /Library, ...) vary by machine.
+SYS_HOME="$TMP_ROOT/syshome"
+mkdir -p "$SYS_HOME/.cache" "$SYS_HOME/.bun"
+ln -s "/nonexistent-spotlight-1333/marker" "$SYS_HOME/.cache/$MARKER"
+OLD_HOME="$HOME"
+export HOME="$SYS_HOME"
+# Isolate the host from the absolute STATIC_PATHS (/Library/..., /nix,
+# /var/root/...): changing HOME only redirects the home-relative
+# entries. Stub touch so writes under TMP_ROOT are real (the fixture
+# .cache failure and .bun success depend on them) and every other
+# marker write is a no-op success (counted as marked, writes nothing).
+REAL_TOUCH="$(command -v touch)"
+mkdir -p "$TMP_ROOT/fakebin"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in\n  "%s"*) exec "%s" "$@" ;;\n  *) exit 0 ;;\nesac\n' "$TMP_ROOT" "$REAL_TOUCH" > "$TMP_ROOT/fakebin/touch"
+chmod +x "$TMP_ROOT/fakebin/touch"
+OLD_PATH="$PATH"
+export PATH="$TMP_ROOT/fakebin:$PATH"
+run --system
+export PATH="$OLD_PATH"
+export HOME="$OLD_HOME"
+[ "$STATUS" -eq 1 ] || fail "system failing-write run exited $STATUS (want 1)"
+case "$ERR" in
+  *"cannot write $SYS_HOME/.cache/$MARKER"*) echo "ok: system failing write named on stderr" ;;
+  *) fail "system failing write not named on stderr (got: $ERR)" ;;
+esac
+case "$OUT" in
+  *"0 failed"*) fail "system failing run summary reported 0 failed (got: $OUT)" ;;
+  *" failed"*) echo "ok: system failing run summary reports a non-zero failed count" ;;
+  *) fail "system failing run printed no summary (got: $OUT)" ;;
+esac
+[ -e "$SYS_HOME/.bun/$MARKER" ] && echo "ok: system failing run still marked the clean path" || fail "system failing run did not mark the clean .bun path (early abort?)"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all spotlight-exclude-artifacts flag-shaped-value checks passed"
