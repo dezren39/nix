@@ -247,5 +247,71 @@ done
 probe_accepted --dry-run --path "$VALID" --pack-threads 0
 probe_accepted --dry-run --path "$VALID" --jobs 08 --depth 08
 
+# ─── Per-repo registration happens in a real run (#1327) ─────────
+# Usage and --dry-run always promised `git maintenance register` +
+# gc.auto 0 + maintenance.auto false per repo, but the real run never
+# did them. Registration is serial in the driver (one shared
+# maintenance.config), so a real run over two repos under the default
+# fan-out must register both, and --no-register must write nothing.
+REG="$TMP_ROOT/reg"
+for r in r1 r2; do
+  mkdir -p "$REG/$r"
+  git init -q "$REG/$r"
+  git -C "$REG/$r" config user.email test@example.invalid
+  git -C "$REG/$r" config user.name test
+  echo x > "$REG/$r/file"
+  git -C "$REG/$r" add file
+  git -C "$REG/$r" commit -qm init
+done
+run --no-system --path "$REG" --quick
+[ "$STATUS" -eq 0 ] || fail "registration run exited $STATUS (stderr: $ERR)"
+MC="$HOME/.config/git/maintenance.config"
+[ -f "$MC" ] || fail "registration run did not create maintenance.config"
+registered="$(git config --file "$MC" --get-all maintenance.repo 2>/dev/null)"
+for r in r1 r2; do
+  case "$registered" in
+    *"$REG/$r"*) echo "ok: $r registered in maintenance.config" ;;
+    *) fail "$r not in maintenance.repo (got: $registered)" ;;
+  esac
+  [ "$(git -C "$REG/$r" config --get gc.auto 2>/dev/null)" = "0" ] \
+    || fail "$r gc.auto not set to 0"
+  [ "$(git -C "$REG/$r" config --get maintenance.auto 2>/dev/null)" = "false" ] \
+    || fail "$r maintenance.auto not set to false"
+done
+echo "ok: registration run sets gc.auto/maintenance.auto in both repos"
+
+# --no-register: no writes at all, in a fresh HOME where the config
+# file's directory does not exist yet either.
+OLD_HOME="$HOME"
+export HOME="$TMP_ROOT/home-noreg"
+mkdir -p "$HOME"
+REGNR="$TMP_ROOT/reg-noreg"
+mkdir -p "$REGNR/r1"
+cp -R "$REG/r1/." "$REGNR/r1/"
+git -C "$REGNR/r1" config --unset gc.auto
+git -C "$REGNR/r1" config --unset maintenance.auto
+run --no-system --path "$REGNR" --quick --no-register
+[ "$STATUS" -eq 0 ] || fail "--no-register run exited $STATUS (stderr: $ERR)"
+[ ! -e "$HOME/.config/git/maintenance.config" ] \
+  || fail "--no-register created maintenance.config"
+[ -z "$(git -C "$REGNR/r1" config --get gc.auto 2>/dev/null)" ] \
+  || fail "--no-register set gc.auto"
+[ -z "$(git -C "$REGNR/r1" config --get maintenance.auto 2>/dev/null)" ] \
+  || fail "--no-register set maintenance.auto"
+echo "ok: --no-register performs no registration writes"
+export HOME="$OLD_HOME"
+
+# A registration failure is named and changes the exit status: the
+# maintenance.config path is a directory, so register cannot write it.
+export HOME="$TMP_ROOT/home-regfail"
+mkdir -p "$HOME/.config/git/maintenance.config"
+run --no-system --path "$REG" --quick
+[ "$STATUS" -ne 0 ] || fail "registration-failure run exited 0"
+case "$ERR" in
+  *"registration failed for $REG/r1"*) echo "ok: registration failure names the repo on stderr" ;;
+  *) fail "registration failure did not name the repo on stderr (got: $ERR)" ;;
+esac
+export HOME="$OLD_HOME"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-maintain-repos flag-shaped-value checks passed"
