@@ -41,8 +41,9 @@ if ! mkdir -p "$(dirname "$PLIST_PATH")"; then
   exit 1
 fi
 
-# Write the plist
-if ! cat > "$PLIST_PATH" << 'EOF'
+# Write the plist (ProgramArguments derives from $PATCH_SCRIPT checked above;
+# it must not hardcode a user-specific absolute path -- see #1366).
+if ! cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -52,7 +53,7 @@ if ! cat > "$PLIST_PATH" << 'EOF'
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/drewry.pope/nix/patch-vscode-insiders.sh</string>
+        <string>$PATCH_SCRIPT</string>
     </array>
     <key>WatchPaths</key>
     <array>

@@ -13,8 +13,11 @@
 #                 step, no success banner (the plist write did happen)
 #   blocked dir:  LaunchAgents is a regular file -> exit non-zero
 #                 naming the directory/write step, no success banner
-#   happy path:   dir pre-exists -> exit 0, banner, plist byte-identical
-#                 to the missing-dir run
+#   happy path:   dir pre-exists -> exit 0, banner, plist names that
+#                 HOME's patch script; rerunning in the same HOME is
+#                 byte-identical (#1366: the plist path derives from the
+#                 checked PATCH_SCRIPT, so plists from different HOMEs
+#                 must differ)
 #   --help:       exit 0, usage printed, no plist written (#1177)
 #   unknown arg:  exit 2 naming it, usage in output, no plist written,
 #                 no success banner (#1177)
@@ -66,6 +69,10 @@ rc=$(run_installer "$home1" "$stub" 0 "$work/out1")
 grep -q "Installed and loaded" "$work/out1"; check "945 missing-dir banner printed" $?
 grep -q "<string>com.drewry.patch-vscode-insiders</string>" "$home1/$PLIST_REL" 2>/dev/null
 check "945 missing-dir plist names the agent" $?
+grep -Fq "<string>$home1/nix/patch-vscode-insiders.sh</string>" "$home1/$PLIST_REL" 2>/dev/null
+check "1366 missing-dir plist names the fixture HOME patch script" $?
+grep -q "drewry\.pope" "$home1/$PLIST_REL" 2>/dev/null; [ $? -ne 0 ]
+check "1366 missing-dir plist has no hardcoded user path" $?
 cp "$home1/$PLIST_REL" "$work/golden.plist" 2>/dev/null
 
 # failing load: stub launchctl load exits 42.
@@ -77,6 +84,8 @@ rc=$(run_installer "$home2" "$stub" 42 "$work/out2")
 grep -q "launchctl load failed" "$work/out2"; check "945 failing load names the load step" $?
 grep -q "Installed and loaded" "$work/out2"; [ $? -ne 0 ]; check "945 failing load prints no success banner" $?
 [ -f "$home2/$PLIST_REL" ]; check "945 failing load still wrote the plist" $?
+grep -Fq "<string>$home2/nix/patch-vscode-insiders.sh</string>" "$home2/$PLIST_REL" 2>/dev/null
+check "1366 failing load plist names the fixture HOME patch script" $?
 
 # blocked dir: LaunchAgents exists as a regular file, so it cannot be
 # created or written into.
@@ -89,15 +98,22 @@ rc=$(run_installer "$home3" "$stub" 0 "$work/out3")
 grep -q "ERROR" "$work/out3"; check "945 blocked dir reports an error" $?
 grep -q "Installed and loaded" "$work/out3"; [ $? -ne 0 ]; check "945 blocked dir prints no success banner" $?
 
-# happy path: directory pre-exists; plist must be byte-identical to the
-# missing-dir run, banner printed, exit 0.
+# happy path: directory pre-exists; plist must name that HOME's patch
+# script (#1366), banner printed, exit 0. A second run in the same HOME
+# must be byte-identical (plists from different HOMEs now differ by
+# design, since the path derives from PATCH_SCRIPT).
 home4="$work/home4"
 make_home "$home4"
 mkdir -p "$home4/Library/LaunchAgents"
 rc=$(run_installer "$home4" "$stub" 0 "$work/out4")
 [ "$rc" -eq 0 ]; check "945 happy path exits 0" $?
 grep -q "Installed and loaded" "$work/out4"; check "945 happy path banner printed" $?
-cmp -s "$home4/$PLIST_REL" "$work/golden.plist"; check "945 happy path plist byte-identical" $?
+grep -Fq "<string>$home4/nix/patch-vscode-insiders.sh</string>" "$home4/$PLIST_REL" 2>/dev/null
+check "1366 happy path plist names the fixture HOME patch script" $?
+cp "$home4/$PLIST_REL" "$work/happy.plist" 2>/dev/null
+rc=$(run_installer "$home4" "$stub" 0 "$work/out4b")
+[ "$rc" -eq 0 ]; check "1366 happy path rerun exits 0" $?
+cmp -s "$home4/$PLIST_REL" "$work/happy.plist"; check "945 happy path plist byte-identical on rerun" $?
 
 # --help: usage, exit 0, no side effects (#1177).
 home5="$work/home5"
