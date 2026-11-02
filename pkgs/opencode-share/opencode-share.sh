@@ -235,6 +235,14 @@ do_unmount() {
   local target="$1"
   local target_opencode="$target/.opencode"
   local target_plans="$target/plans"
+  # NOTE (#1323): a failed umount used to be silently swallowed -- both
+  # umount calls ran through `run` unchecked and the function ended with
+  # a successful `log`, so the dispatch never counted an error and the
+  # run reported "Unmounted" / exit 0 with both mounts still up.
+  # Mirror do_mount: check each umount result AND re-check is_mounted
+  # afterwards, name any failure on stderr, and return non-zero so the
+  # target counts in the dispatch summary.
+  local failed=0
 
   echo ""
   info "${BOLD}Unmounting:${NC} $target"
@@ -242,7 +250,13 @@ do_unmount() {
   # Unmount plans overlay first (inner mount must go before outer)
   if is_mounted "$target_opencode/plans"; then
     info "Unmounting plans overlay: $target_opencode/plans"
-    run umount "$target_opencode/plans"
+    if ! run umount "$target_opencode/plans"; then
+      err "Failed to unmount plans overlay: $target_opencode/plans"
+      failed=1
+    elif ! $DRY_RUN && is_mounted "$target_opencode/plans"; then
+      err "Failed to unmount plans overlay (still mounted): $target_opencode/plans"
+      failed=1
+    fi
   else
     info "Plans overlay not mounted (skipping)"
   fi
@@ -250,14 +264,23 @@ do_unmount() {
   # Unmount .opencode (outer mount)
   if is_mounted "$target_opencode"; then
     info "Unmounting .opencode: $target_opencode"
-    run umount "$target_opencode"
+    if ! run umount "$target_opencode"; then
+      err "Failed to unmount .opencode: $target_opencode"
+      failed=1
+    elif ! $DRY_RUN && is_mounted "$target_opencode"; then
+      err "Failed to unmount .opencode (still mounted): $target_opencode"
+      failed=1
+    fi
   else
     info ".opencode not mounted (skipping)"
   fi
 
-  # Clean up empty mount point directory (only if empty)
+  # Clean up empty mount point directory (only if empty and not still
+  # mounted -- rmdir must never run against a live mount point)
   if [[ -d "$target_opencode" ]]; then
-    if [[ -z "$(ls -A "$target_opencode" 2>/dev/null)" ]]; then
+    if ! $DRY_RUN && is_mounted "$target_opencode"; then
+      warn "Still mounted, leaving mount point: $target_opencode"
+    elif [[ -z "$(ls -A "$target_opencode" 2>/dev/null)" ]]; then
       info "Removing empty mount point: $target_opencode"
       run rmdir "$target_opencode"
     else
@@ -270,6 +293,11 @@ do_unmount() {
     local plan_count
     plan_count=$(find "$target_plans" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
     log "Project plans preserved: $target_plans ($plan_count files)"
+  fi
+
+  if [[ $failed -ne 0 ]]; then
+    err "Failed to unmount .opencode from $target"
+    return 1
   fi
 
   log "Unmounted .opencode from $target"
