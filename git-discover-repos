@@ -230,13 +230,34 @@ build_name_expr PRUNE_EXPR "${ALL_ARTIFACT_NAMES[@]}"
 ARTIFACTS_FILE="$(mktemp)"
 scan_deep() {
   [ -d "$1" ] || return 0
-  find -H "$1" "${DEPTH_ARGS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -print -o -name .git -print 2>/dev/null |
+  # A failed find enumeration (e.g. an unreadable subdirectory) must not be
+  # silently swallowed (#1325): find's stderr is captured, not discarded,
+  # and a non-zero find status is returned to the caller. In --path mode
+  # the failure is named on stderr (find's own lines name the unreadable
+  # directory; the clean line names the scan root, #1321 style) and
+  # seed_path turns the status into the script's exit status. --auto is
+  # best-effort by design, so seed_auto ignores the status and the
+  # failure stays quiet there.
+  local err_file find_status
+  err_file="$(mktemp)"
+  find -H "$1" "${DEPTH_ARGS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -print -o -name .git -print 2>"$err_file" |
     while IFS= read -r hit; do
       case "$(basename "$hit")" in
         .git) printf '%s\n' "${hit%/.git}" ;;
         *)    printf '%s\n' "$hit" >> "$ARTIFACTS_FILE" ;;
       esac
     done
+  find_status=${PIPESTATUS[0]}
+  if [ "$find_status" -ne 0 ]; then
+    if [ "$MODE" = "path" ]; then
+      cat "$err_file" >&2
+      echo "git-discover-repos: failed to enumerate: $1" >&2
+    fi
+    rm -f "$err_file"
+    return 1
+  fi
+  rm -f "$err_file"
+  return 0
 }
 
 # A bare repo has no .git entry; the directory itself is the object store.
@@ -326,9 +347,9 @@ seed_path() {
     [ -d "$p" ] || { echo "git-discover-repos: not a directory: $p" >&2; failed=1; continue; }
     c="$(canon "$p")"
     printf '%s\n' "$c"
-    scan_deep "$c"
-    scan_deep "$c/.git"
-    scan_deep "$c/.worktrees"
+    scan_deep "$c" || failed=1
+    scan_deep "$c/.git" || failed=1
+    scan_deep "$c/.worktrees" || failed=1
   done
   return "$failed"
 }
@@ -473,15 +494,35 @@ if [ -n "$FIND_SPEC" ]; then
   # and its direct children, so `--path X --no-walk` finds X/.trash but not
   # X/a/b/.trash. -prune on match means a dist/ nested inside node_modules/ is
   # never reported separately -- the parent already covers it.
+  # The sweep's find used to run in a process substitution with its
+  # stderr discarded, so an enumeration failure vanished the same way
+  # scan_deep's did (#1325). Run it to files instead so its status can be
+  # checked: hits still print, the failure is named on stderr, and
+  # FIND_STATUS joins the script's exit status below.
+  FIND_STATUS=0
   while IFS=$'\t' read -r _kind loc; do
     [ -d "$loc" ] || continue
+    hits_file="$(mktemp)"; find_err_file="$(mktemp)"
+    find "$loc" "${DEPTH_ARGS[@]}" \( -name .git -o -name .worktrees \) -prune -o \
+               -type d \( "${FIND_EXPR[@]}" \) -prune -print 2>"$find_err_file" > "$hits_file"
+    sweep_status=$?
+    if [ "$sweep_status" -ne 0 ]; then
+      cat "$find_err_file" >&2
+      echo "git-discover-repos: failed to enumerate artifacts under: $loc" >&2
+      FIND_STATUS=1
+    fi
     while IFS= read -r hit; do
       printf 'FOUND\t%s\t%s\t%s\n' "$(reason_for "$hit")" "$(status_for "$hit")" "$hit"
-    done < <(find "$loc" "${DEPTH_ARGS[@]}" \( -name .git -o -name .worktrees \) -prune -o \
-               -type d \( "${FIND_EXPR[@]}" \) -prune -print 2>/dev/null)
+    done < "$hits_file"
+    rm -f "$hits_file" "$find_err_file"
   done < <(sort -u "$OUT_FILE")
 fi
 
 # The seeding verdict is the script's verdict (#940): without this explicit
 # exit, a run that printed a bad --path error above would still exit 0 here.
-exit "$SEED_STATUS"
+# An artifact-sweep enumeration failure (#1325) is the same kind of
+# partial failure and shares the verdict when seeding itself was clean.
+if [ "$SEED_STATUS" -ne 0 ]; then
+  exit "$SEED_STATUS"
+fi
+exit "${FIND_STATUS:-0}"
