@@ -21,6 +21,11 @@
 # found are still printed. The --find artifact sweep surfaces its own
 # enumeration failures the same way. --auto stays best-effort.
 #
+# #1343 adds the follow-loop contract: a failed `git worktree list`
+# or `rev-parse --git-common-dir` in the --follow loop is named on
+# stderr and the script exits non-zero, while the entries that were
+# still determined are printed.
+#
 # This drives the REAL git-discover-repos (no pasted copies) against temp
 # dirs. The fixture repo is a plain directory with a .git directory, which
 # is all discovery's classify() looks for — no git binary needed.
@@ -268,6 +273,62 @@ if [ "$(id -u)" -ne 0 ]; then
   case "$ERR" in *"$LOCKED_CANON/locked"*) echo "ok: unreadable directory named on stderr" ;; *) fail "unreadable directory not named on stderr (got: $ERR)" ;; esac
   case "$OUT" in *"repo"$'\t'"$LOCKED_CANON/repoA"*) echo "ok: readable repo still listed beside the unreadable directory" ;; *) fail "unreadable-dir run did not list repoA (got: $OUT)" ;; esac
 fi
+
+# ─── --follow git failures are not swallowed (#1343) ─────────────
+# The follow loop's two git calls used to discard status and stderr
+# (rev-parse with 2>/dev/null; worktree list inside a process
+# substitution, whose status cannot reach the script), so a failed
+# enumeration read as "no links": linked worktrees vanished and the
+# run exited 0. A git shim that delegates everything except one named
+# subcommand pins the contract: the failure is named on stderr (the
+# directory and git's own error), the run exits non-zero, and the
+# entries that were still determined are printed. This section needs
+# real repositories (following speaks real git), unlike the fake .git
+# fixtures above.
+FOLLOWED="$TMP_ROOT/followed"
+mkdir -p "$FOLLOWED"
+real_git="$(command -v git)"
+"$real_git" init -q "$FOLLOWED/repo"
+printf 'x\n' > "$FOLLOWED/repo/file"
+"$real_git" -C "$FOLLOWED/repo" add file
+"$real_git" -C "$FOLLOWED/repo" -c user.name=Test -c user.email=test@example.com commit -qm init
+"$real_git" -C "$FOLLOWED/repo" worktree add -q "$FOLLOWED/linked"
+FOLLOWED_CANON="$(cd "$FOLLOWED" && pwd -P)"
+
+run --path "$FOLLOWED/repo" --follow
+[ "$STATUS" -eq 0 ] || fail "healthy --follow exited $STATUS (#1343)"
+case "$OUT" in *"repo"$'\t'"$FOLLOWED_CANON/repo"*) echo "ok: healthy --follow lists the repo" ;; *) fail "healthy --follow did not list the repo (got: $OUT)" ;; esac
+case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/linked"*) echo "ok: healthy --follow lists the linked worktree" ;; *) fail "healthy --follow did not list the linked worktree (got: $OUT)" ;; esac
+
+git_shim_dir="$TMP_ROOT/git-shim"
+mkdir -p "$git_shim_dir"
+make_git_shim() {
+  # $1 = the subcommand words the shimmed git fails, e.g. "worktree list"
+  cat > "$git_shim_dir/git" <<SHIM_EOF
+#!/bin/sh
+case " \$* " in
+  *" $1 "*) echo "fatal: stubbed $1 failure" >&2; exit 128 ;;
+esac
+exec $real_git "\$@"
+SHIM_EOF
+  chmod +x "$git_shim_dir/git"
+}
+
+make_git_shim "worktree list"
+OUT="$(PATH="$git_shim_dir:$PATH" "$SCRIPT" --path "$FOLLOWED/repo" --follow 2>"$TMP_ROOT/err")"; STATUS=$?
+ERR="$(cat "$TMP_ROOT/err")"
+[ "$STATUS" -ne 0 ] || fail "failed worktree list under --follow exited 0 (#1343)"
+case "$ERR" in *"failed to list worktrees for: $FOLLOWED_CANON/repo"*) echo "ok: worktree-list failure named on stderr" ;; *) fail "worktree-list failure not named on stderr (got: $ERR)" ;; esac
+case "$ERR" in *"fatal: stubbed worktree list failure"*) echo "ok: git's own worktree-list error surfaced on stderr" ;; *) fail "git's own worktree-list error not surfaced (got: $ERR)" ;; esac
+case "$OUT" in *"repo"$'\t'"$FOLLOWED_CANON/repo"*) echo "ok: repo still printed when worktree list fails" ;; *) fail "worktree-list failure run did not list the repo (got: $OUT)" ;; esac
+
+make_git_shim "rev-parse"
+OUT="$(PATH="$git_shim_dir:$PATH" "$SCRIPT" --path "$FOLLOWED/repo" --follow 2>"$TMP_ROOT/err")"; STATUS=$?
+ERR="$(cat "$TMP_ROOT/err")"
+[ "$STATUS" -ne 0 ] || fail "failed rev-parse under --follow exited 0 (#1343)"
+case "$ERR" in *"failed to resolve git common dir for: $FOLLOWED_CANON/repo"*) echo "ok: rev-parse failure named on stderr" ;; *) fail "rev-parse failure not named on stderr (got: $ERR)" ;; esac
+case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/linked"*) echo "ok: linked worktree still printed when rev-parse fails" ;; *) fail "rev-parse failure run did not list the linked worktree (got: $OUT)" ;; esac
+rm -f "$git_shim_dir/git"
 
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for git-discover-repos, driven through

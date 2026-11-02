@@ -402,6 +402,7 @@ rm -f "$SEED_FILE"
 # ---------------------------------------------------------------------------
 # Following: hop along git's own links until nothing new turns up.
 # ---------------------------------------------------------------------------
+FOLLOW_STATUS=0
 if [ "$FOLLOW" = "1" ]; then
   round=0
   while [ -s "$QUEUE_FILE" ] && [ "$round" -lt 20 ]; do
@@ -412,7 +413,26 @@ if [ "$FOLLOW" = "1" ]; then
     while IFS= read -r d; do
       [ -d "$d" ] || continue
       # worktree -> the real repository backing it
-      common="$(git_q -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+      # A failed rev-parse must not read as "no common dir" (#1343):
+      # capture git's stderr and status instead of discarding them.
+      # Only a non-zero status is a failure -- a successful rev-parse
+      # that prints nothing still means "no common dir" and stays
+      # quiet. In --path mode the failure is named on stderr (git's
+      # own lines, then a clean line naming the directory) and counted
+      # into FOLLOW_STATUS, the exit verdict below; --auto stays
+      # best-effort, like its seeding enumerations (#1325).
+      common_err="$(mktemp)"
+      common_status=0
+      common="$(git_q -C "$d" rev-parse --path-format=absolute --git-common-dir 2>"$common_err")" || common_status=$?
+      if [ "$common_status" -ne 0 ]; then
+        if [ "$MODE" = "path" ]; then
+          cat "$common_err" >&2
+          echo "git-discover-repos: failed to resolve git common dir for: $d" >&2
+          FOLLOW_STATUS=1
+        fi
+        common=""
+      fi
+      rm -f "$common_err"
       if [ -n "$common" ] && [ -d "$common" ]; then
         main="${common%/.git}"
         [ "$main" = "$common" ] || consider "$main"
@@ -420,11 +440,25 @@ if [ "$FOLLOW" = "1" ]; then
         [ "$main" = "$common" ] && is_bare_repo "$common" && consider "$common"
       fi
       # repository -> every worktree attached to it
+      # `worktree list` used to run in a process substitution, whose
+      # status cannot reach the script, with stderr discarded: a
+      # failed list ran the loop zero times and the worktrees silently
+      # vanished (#1343). Run it to files instead, like the artifact
+      # sweep's find (#1325): output it did produce is still consumed,
+      # the failure is named the same way, and its status is counted.
+      wt_file="$(mktemp)"; wt_err_file="$(mktemp)"; wt_status=0
+      git_q -C "$d" worktree list --porcelain > "$wt_file" 2> "$wt_err_file" || wt_status=$?
+      if [ "$wt_status" -ne 0 ] && [ "$MODE" = "path" ]; then
+        cat "$wt_err_file" >&2
+        echo "git-discover-repos: failed to list worktrees for: $d" >&2
+        FOLLOW_STATUS=1
+      fi
       while IFS= read -r line; do
         case "$line" in
           worktree\ *) consider "${line#worktree }" ;;
         esac
-      done < <(git_q -C "$d" worktree list --porcelain 2>/dev/null)
+      done < "$wt_file"
+      rm -f "$wt_file" "$wt_err_file"
     done < "$CURRENT"
     rm -f "$CURRENT"
   done
@@ -448,7 +482,10 @@ if [ "$COUNT_ONLY" = "1" ]; then
   r=$(awk -F'\t' '$1=="repo"' "$OUT_FILE" | wc -l | tr -d ' ')
   w=$(awk -F'\t' '$1=="worktree"' "$OUT_FILE" | wc -l | tr -d ' ')
   echo "repos=$r worktrees=$w total=$((r + w))"
-  exit "$SEED_STATUS"
+  if [ "$SEED_STATUS" -ne 0 ]; then
+    exit "$SEED_STATUS"
+  fi
+  exit "${FOLLOW_STATUS:-0}"
 fi
 
 sort -u "$OUT_FILE" | filter_out \
@@ -524,5 +561,10 @@ fi
 # partial failure and shares the verdict when seeding itself was clean.
 if [ "$SEED_STATUS" -ne 0 ]; then
   exit "$SEED_STATUS"
+fi
+# A follow-loop git failure (#1343) is the same kind of partial
+# failure and shares the verdict when seeding itself was clean.
+if [ "${FOLLOW_STATUS:-0}" -ne 0 ]; then
+  exit "$FOLLOW_STATUS"
 fi
 exit "${FIND_STATUS:-0}"
