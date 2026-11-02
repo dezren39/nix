@@ -111,6 +111,74 @@ if ! grep -qF "$fail_root/aa" "$TMP_ROOT/err"; then fail "rm failure: failed ent
 if [ ! -e "$fail_root/aa/file" ]; then fail "rm failure: shimmed entry was removed anyway"; fi
 if [ -e "$fail_root/zz/file2" ]; then fail "rm failure: zz contents were not swept after the failure"; fi
 
+# Enumeration failure (#1321): a find shim on PATH fails only for one
+# named directory, regardless of the privileges the suite runs with
+# (a chmod 000 fixture does not stop root — the #1257 lesson, same
+# pattern as the #1262 rm shim above). The script must exit non-zero
+# and name the directory it could not enumerate on stderr, with one
+# clean line — find's own raw stderr stays suppressed.
+find_shim_dir="$TMP_ROOT/find-shim"
+mkdir -p "$find_shim_dir"
+# Resolve the real find before the shim shadows it.
+real_find="$(command -v find)"
+make_find_shim() {
+  # $1 = the exact path argument the shimmed find fails on
+  cat > "$find_shim_dir/find" <<SHIM_EOF
+#!/bin/sh
+for arg in "\$@"; do
+  if [ "\$arg" = "$1" ]; then
+    echo "find: $1: Permission denied (shimmed failure)" >&2
+    exit 1
+  fi
+done
+exec $real_find "\$@"
+SHIM_EOF
+  chmod +x "$find_shim_dir/find"
+}
+
+# Case 1: enumerating the folders root fails — non-zero exit, the
+# root named on stderr, and every entry (top-level and zz contents)
+# left in place.
+enum_root="$TMP_ROOT/enumfolders"
+mkdir -p "$enum_root/aa" "$enum_root/zz/inner"
+touch "$enum_root/aa/f" "$enum_root/topfile" "$enum_root/zz/inner/g"
+make_find_shim "$enum_root"
+rc=0
+PATH="$find_shim_dir:$PATH" bash "$HELPER" "$enum_root" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -eq 0 ]; then fail "find failure (root): expected non-zero exit, got 0"; fi
+if ! grep -qF "failed to enumerate: $enum_root" "$TMP_ROOT/err"; then fail "find failure (root): failed root not named on stderr"; fi
+if [ ! -e "$enum_root/aa/f" ] || [ ! -e "$enum_root/topfile" ] || [ ! -e "$enum_root/zz/inner/g" ]; then fail "find failure (root): entries were swept despite the failed enumeration"; fi
+
+# Case 2: enumerating zz/ fails — non-zero exit and zz named on
+# stderr even though the top-level sweep still ran (the sibling is
+# deleted, zz contents remain).
+enum_zz="$TMP_ROOT/enumzz"
+mkdir -p "$enum_zz/aa" "$enum_zz/zz"
+touch "$enum_zz/aa/f" "$enum_zz/zz/keepme"
+make_find_shim "$enum_zz/zz"
+rc=0
+PATH="$find_shim_dir:$PATH" bash "$HELPER" "$enum_zz" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -eq 0 ]; then fail "find failure (zz): expected non-zero exit, got 0"; fi
+if ! grep -qF "failed to enumerate: $enum_zz/zz" "$TMP_ROOT/err"; then fail "find failure (zz): failed zz not named on stderr"; fi
+if [ -e "$enum_zz/aa" ]; then fail "find failure (zz): top-level sweep did not run"; fi
+if [ ! -e "$enum_zz/zz/keepme" ]; then fail "find failure (zz): zz contents were removed anyway"; fi
+
+# TMPDIR inside the swept root (Codex P1 on PR #1322): on the real
+# macOS layout the caller's TMPDIR lives under a top-level entry of
+# the root, so any enumeration state the script stores via mktemp
+# there is deleted by its own first pass and the zz pass then fails
+# spuriously. The sweep must not depend on TMPDIR at all: with
+# TMPDIR pointed inside the root, a normal sweep still exits 0 and
+# clears zz.
+tmpdir_root="$TMP_ROOT/tmpdirfolders"
+mkdir -p "$tmpdir_root/aa/user/T" "$tmpdir_root/zz"
+touch "$tmpdir_root/aa/user/T/scratch" "$tmpdir_root/zz/keepme"
+rc=0
+TMPDIR="$tmpdir_root/aa/user/T" bash "$HELPER" "$tmpdir_root" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -ne 0 ]; then fail "TMPDIR inside root: expected exit 0, got $rc"; fi
+if [ -e "$tmpdir_root/aa" ]; then fail "TMPDIR inside root: top-level entries were not swept"; fi
+if [ -e "$tmpdir_root/zz/keepme" ]; then fail "TMPDIR inside root: zz contents were not swept"; fi
+
 if [ "$failures" -eq 0 ]; then
   echo "PASS: /private/var/folders cleaning logic verified successfully."
 else
