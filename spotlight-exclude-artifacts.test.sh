@@ -266,7 +266,19 @@ mkdir -p "$SYS_HOME/.cache" "$SYS_HOME/.bun"
 ln -s "/nonexistent-spotlight-1333/marker" "$SYS_HOME/.cache/$MARKER"
 OLD_HOME="$HOME"
 export HOME="$SYS_HOME"
+# Isolate the host from the absolute STATIC_PATHS (/Library/..., /nix,
+# /var/root/...): changing HOME only redirects the home-relative
+# entries. Stub touch so writes under TMP_ROOT are real (the fixture
+# .cache failure and .bun success depend on them) and every other
+# marker write is a no-op success (counted as marked, writes nothing).
+REAL_TOUCH="$(command -v touch)"
+mkdir -p "$TMP_ROOT/fakebin"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in\n  "%s"*) exec "%s" "$@" ;;\n  *) exit 0 ;;\nesac\n' "$TMP_ROOT" "$REAL_TOUCH" > "$TMP_ROOT/fakebin/touch"
+chmod +x "$TMP_ROOT/fakebin/touch"
+OLD_PATH="$PATH"
+export PATH="$TMP_ROOT/fakebin:$PATH"
 run --system
+export PATH="$OLD_PATH"
 export HOME="$OLD_HOME"
 [ "$STATUS" -eq 1 ] || fail "system failing-write run exited $STATUS (want 1)"
 case "$ERR" in
