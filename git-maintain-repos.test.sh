@@ -313,5 +313,59 @@ case "$ERR" in
 esac
 export HOME="$OLD_HOME"
 
+# ─── Per-repo maintenance failures reach the exit code (#1331) ────
+# A corrupt blob makes gc fail at run time. On the old code the worker
+# captured fsck_rc only to gate orphan cleanup and ended `exit 0`, the
+# gc pipe never captured PIPESTATUS, the quick tasks discarded
+# stderr+status, and the driver never checked the xargs fan-out -- a
+# corrupt repo reported a clean run at exit 0.
+FAILROOT="$TMP_ROOT/failrepos"
+for r in good bad; do
+  mkdir -p "$FAILROOT/$r"
+  git init -q "$FAILROOT/$r"
+  git -C "$FAILROOT/$r" config user.email test@example.invalid
+  git -C "$FAILROOT/$r" config user.name test
+  echo x > "$FAILROOT/$r/file"
+  git -C "$FAILROOT/$r" add file
+  git -C "$FAILROOT/$r" commit -qm init
+done
+blob="$(git -C "$FAILROOT/bad" rev-parse HEAD:file)"
+obj="$FAILROOT/bad/.git/objects/${blob:0:2}/${blob:2}"
+chmod +w "$obj"
+printf garbage > "$obj"
+
+# Worker directly, deep pass: gc on the corrupt repo fails, so the
+# worker must exit non-zero and name the repo + the failed step.
+WERR="$TMP_ROOT/worker.err"
+GMR_ONE=1 DEPTH=deep FSCK=1 bash "$SCRIPT" --one "$FAILROOT/bad" >"$TMP_ROOT/worker.out" 2>"$WERR"; WSTATUS=$?
+[ "$WSTATUS" -ne 0 ] || fail "worker (deep) on corrupt repo exited 0"
+case "$(cat "$WERR")" in
+  *"maintenance failed for $FAILROOT/bad: git gc"*) echo "ok: worker names repo + gc step on stderr and exits non-zero" ;;
+  *) fail "worker stderr did not name repo+gc step (got: $(cat "$WERR"))" ;;
+esac
+
+# Worker on the healthy control still exits 0.
+GMR_ONE=1 DEPTH=quick FSCK=1 bash "$SCRIPT" --one "$FAILROOT/good" >/dev/null 2>&1; WSTATUS=$?
+[ "$WSTATUS" -eq 0 ] || fail "worker on healthy repo exited $WSTATUS (want 0)"
+echo "ok: worker on healthy repo exits 0"
+
+# Driver over both repos: the healthy repo is still processed, the
+# exit is non-zero, and the summary names the failed repo.
+run --no-system --path "$FAILROOT" --deep --no-register
+[ "$STATUS" -ne 0 ] || fail "driver on corrupt repo exited 0"
+case "$ERR" in
+  *"maintenance failed for 1 of 2 repo(s)"*"$FAILROOT/bad"*) echo "ok: driver aggregates the worker failure, names the repo, exits non-zero" ;;
+  *) fail "driver did not summarise the failed repo (stderr: $ERR)" ;;
+esac
+case "$OUT" in
+  *"good"*) echo "ok: driver still processed the healthy repo" ;;
+  *) fail "driver output did not include the healthy repo (got: $OUT)" ;;
+esac
+
+# Driver on the healthy repo alone is unchanged: exit 0.
+run --no-system --path "$FAILROOT/good" --quick --no-register
+[ "$STATUS" -eq 0 ] || fail "driver on healthy repo exited $STATUS (stderr: $ERR)"
+echo "ok: driver on healthy repo exits 0"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-maintain-repos flag-shaped-value checks passed"

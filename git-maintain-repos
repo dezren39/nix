@@ -306,13 +306,52 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
     rm -f "$dsf" 2>/dev/null && echo "  [$name] removed stray $(basename "$(dirname "$dsf")")/.DS_Store"
   done < <(find "$repo/.git" -name .DS_Store -type f 2>/dev/null)
 
+  # Per-repo failures must reach the exit code (#1331): every step below
+  # records a failure -- repo + step named on stderr -- instead of
+  # discarding its status, and the worker exits non-zero at the end if
+  # any step recorded one. GMR_FAIL_DIR (set by the driver) collects one
+  # file per failed step naming the repo, so the driver can summarise
+  # the distinct failed repos after the parallel fan-out.
+  worker_failures=0
+  gmr_fail() {
+    echo "git-maintain-repos: maintenance failed for $repo: $1 (exit $2)" >&2
+    worker_failures=$((worker_failures + 1))
+    if [ -n "${GMR_FAIL_DIR:-}" ] && [ -d "${GMR_FAIL_DIR:-}" ]; then
+      _fail_file=$(mktemp "$GMR_FAIL_DIR/fail.XXXXXX" 2>/dev/null) \
+        && printf '%s\n' "$repo" > "$_fail_file"
+    fi
+  }
+  # A maintenance task's stderr is captured, not discarded: silent on
+  # success (a successful run's output is unchanged), replayed to
+  # stderr only when the task fails.
+  gmr_task() {
+    _task_err=$(mktemp "${TMPDIR:-/tmp}/git-maintain-repos-task.XXXXXX")
+    git -C "$repo" maintenance run --task="$1" 2>"$_task_err"
+    _task_rc=$?
+    if [ "$_task_rc" -ne 0 ]; then
+      [ -s "$_task_err" ] && cat "$_task_err" >&2
+      gmr_fail "git maintenance run --task=$1" "$_task_rc"
+    fi
+    rm -f "$_task_err"
+  }
+  gmr_commit_graph() {
+    _cg_err=$(mktemp "${TMPDIR:-/tmp}/git-maintain-repos-cg.XXXXXX")
+    git -C "$repo" commit-graph write --reachable --changed-paths 2>"$_cg_err"
+    _cg_rc=$?
+    if [ "$_cg_rc" -ne 0 ]; then
+      [ -s "$_cg_err" ] && cat "$_cg_err" >&2
+      gmr_fail "git commit-graph write" "$_cg_rc"
+    fi
+    rm -f "$_cg_err"
+  }
+
   if [ "$DEPTH" = "quick" ] || [ "$DEPTH" = "repack" ]; then
-    git -C "$repo" maintenance run --task=commit-graph       2>/dev/null  # generation numbers + Bloom filters
-    git -C "$repo" maintenance run --task=loose-objects      2>/dev/null  # pack loose objects; does not rewrite packs
+    gmr_task commit-graph       # generation numbers + Bloom filters
+    gmr_task loose-objects      # pack loose objects; does not rewrite packs
     if [ "$DEPTH" != "quick" ]; then
-      git -C "$repo" maintenance run --task=incremental-repack 2>/dev/null # geometric repack + refresh MIDX
+      gmr_task incremental-repack # geometric repack + refresh MIDX
     fi                                                                   # --quick stops short of any repack
-    git -C "$repo" maintenance run --task=pack-refs          2>/dev/null  # collapse loose refs into packed-refs
+    gmr_task pack-refs          # collapse loose refs into packed-refs
   elif [ "$DEPTH" = "safe" ]; then
     # Middle tier between --quick and --deep, and the target of the worktree
     # downgrade. A full repack, but pruning only objects older than git's
@@ -322,7 +361,9 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
     # unsafe on a shared object store. Everything else --deep does is safe.
     git -C "$repo" -c gc.autoDetach=false -c pack.threads="$PACK_THREADS" \
       gc --prune=2.weeks.ago --force 2>&1 | sed "s|^|  [$name] |"
-    git -C "$repo" commit-graph write --reachable --changed-paths 2>/dev/null
+    _gc_rc=${PIPESTATUS[0]}
+    [ "$_gc_rc" -eq 0 ] || gmr_fail "git gc --prune=2.weeks.ago" "$_gc_rc"
+    gmr_commit_graph
   else
     # Explicit reflog expiry is OPT-IN (--expire-reflog). Without it, `gc` below
     # still expires reflogs using git's own defaults -- gc.reflogExpire 90 days
@@ -332,10 +373,14 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
     if [ "$EXPIRE_REFLOG" = "1" ]; then
       git -C "$repo" reflog expire --expire="$REFLOG_EXPIRE" \
         --expire-unreachable="$REFLOG_EXPIRE" --all 2>&1 | sed "s|^|  [$name] |" # release unreachable objects for prune
+      _reflog_rc=${PIPESTATUS[0]}
+      [ "$_reflog_rc" -eq 0 ] || gmr_fail "git reflog expire" "$_reflog_rc"
     fi
     git -C "$repo" -c gc.autoDetach=false -c pack.threads="$PACK_THREADS" \
       gc --prune=now --force 2>&1 | sed "s|^|  [$name] |"                 # full repack + prune + clear tmp garbage
-    git -C "$repo" commit-graph write --reachable --changed-paths 2>/dev/null  # rebuild graph after repack
+    _gc_rc=${PIPESTATUS[0]}
+    [ "$_gc_rc" -eq 0 ] || gmr_fail "git gc --prune=now" "$_gc_rc"
+    gmr_commit_graph
   fi                                                                     # no pack-refs: gc.packRefs defaults true, gc already did it
 
   if [ "$FSCK" = "1" ] || [ "$CLEAN_ORPHANS" = "1" ]; then
@@ -345,6 +390,9 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
   else
     fsck_rc=0
   fi
+  # fsck_rc still gates orphan cleanup below; it now ALSO fails the
+  # worker (#1331) -- detecting corruption and exiting 0 hid it.
+  [ "$fsck_rc" -eq 0 ] || gmr_fail "git fsck" "$fsck_rc"
 
   orphans=$(git -C "$repo" count-objects -v 2>/dev/null | awk '/^garbage:/{print $2}')
   if [ "${orphans:-0}" -gt 0 ]; then
@@ -369,6 +417,7 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
 
   after=$(du -sk "$repo/.git" 2>/dev/null | cut -f1); after=${after:-0}
   printf '  %-50s %6s MB -> %6s MB\n' "$name" "$((before / 1024))" "$((after / 1024))"
+  [ "$worker_failures" -eq 0 ] || exit 1
   exit 0
 fi
 
@@ -482,10 +531,31 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+# Worker failures aggregate here (#1331), the way register_failures
+# does below: each failing worker drops one file per failed step in
+# GMR_FAIL_DIR naming its repo, and the driver summarises the distinct
+# failed repos before exiting. The old fan-out discarded the xargs
+# result entirely, so even a non-zero worker could not change the exit.
+GMR_FAIL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/git-maintain-repos-failures.XXXXXX")"
 printf '%s\0' "${repos[@]}" |
   GMR_ONE=1 DEPTH="$DEPTH" FSCK="$FSCK" CLEAN_ORPHANS="$CLEAN_ORPHANS" REGISTER="$REGISTER" \
   REFLOG_EXPIRE="$REFLOG_EXPIRE" PACK_THREADS="$PACK_THREADS" EXPIRE_REFLOG="$EXPIRE_REFLOG" \
+  GMR_FAIL_DIR="$GMR_FAIL_DIR" \
     xargs -0 -P "$JOBS" -I{} "$self" --one {}
+fanout_rc=$?
+maint_failed_repos=()
+if compgen -G "$GMR_FAIL_DIR/fail.*" >/dev/null; then
+  mapfile -t maint_failed_repos < <(cat "$GMR_FAIL_DIR"/fail.* | sort -u)
+  rm -f "$GMR_FAIL_DIR"/fail.*
+fi
+rmdir "$GMR_FAIL_DIR" 2>/dev/null || true
+maint_failures=${#maint_failed_repos[@]}
+if [ "$maint_failures" -eq 0 ] && [ "$fanout_rc" -ne 0 ]; then
+  # A worker died without naming a repo (killed, exec failure): the
+  # fan-out failure itself must still reach the exit code.
+  maint_failures=1
+  echo "git-maintain-repos: maintenance worker fan-out failed with exit $fanout_rc" >&2
+fi
 
 # Per-repo registration (#1327): usage and --dry-run have always promised
 # `git maintenance register` + gc.auto 0 + maintenance.auto false per repo,
@@ -528,4 +598,10 @@ if [ "$REGISTER" = "1" ] && [ "$SCOPE" != "walk" ]; then
   ensure_scheduler
 fi
 
+if [ "$maint_failures" -gt 0 ] && [ "${#maint_failed_repos[@]}" -gt 0 ]; then
+  echo "git-maintain-repos: maintenance failed for $maint_failures of ${#repos[@]} repo(s):" >&2
+  printf 'git-maintain-repos:   failed repo: %s\n' "${maint_failed_repos[@]}" >&2
+fi
+
 [ "$register_failures" -eq 0 ] || exit 1
+[ "$maint_failures" -eq 0 ] || exit 1
