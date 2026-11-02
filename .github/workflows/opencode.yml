@@ -16,6 +16,7 @@ on:
 # after #1172 set it to true). This workflow is the deliberate exception
 # to the repo-wide cancel-in-progress sweep: false + queue: max is what
 # guarantees no queued /oc command is silently replaced by a later one.
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: false
