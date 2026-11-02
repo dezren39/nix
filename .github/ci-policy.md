@@ -63,3 +63,35 @@ time via the pm-dispatch-queue action
 critical priority, attached to the issue it just filed. If that
 enqueue step fails, the issue carries the `queue/queued` label and
 the fleet monitor enqueues it as the fallback.
+
+## Release gate — Phase 3 (developing-today/code#1782, step 7)
+
+Audit outcome (2026-11-02, queue task 6541): **no publish/release path
+exists in this repo.** All nine workflows under
+`.github/workflows/` are build-only or automation — `mcpx nix build`,
+`flake packages build`, and `flake checks build` run `nix build` with
+no push step; `main-broken watcher` files/appends issues;
+`branch-cleanup` deletes stale branches; `buffer-backup lock sync`
+only checks lockfiles; `buffer-backup renovate bun sync`
+pushes a regenerated `bun.lock` back to the Renovate PR branch it
+syncs (PR-scoped lockfile commit, not an artifact/cache/release
+publish); `opencode` is a comment-triggered bot; `agents` reuses the
+`pm-scheduled` workflow. No step pushes artifacts, caches, container
+images, or GitHub Releases, so there is nothing to gate today — the
+release-gate acceptance is vacuously satisfied for this repo.
+
+Gate rule for any future publish path: a workflow that publishes
+(artifacts, caches, images, releases) MUST first verify that the
+publishing SHA has a `success` conclusion on all three watched
+main-tier workflows (`mcpx nix build`, `flake packages build`,
+`flake checks build`) via the Actions API, and refuse to publish
+otherwise. The check is fail-closed: a failed **or missing**
+main-gate conclusion blocks the publish.
+
+Override path (hotfix): if the gate run is missing for a SHA that
+must ship, a repo owner may re-run the three watched workflows for
+that SHA (or `workflow_dispatch` the publish with an explicit
+`override_release_gate=true` input plus a recorded reason), and the
+override reason MUST be posted to the release PR/issue so the
+exception is auditable. Without that explicit override, red or
+unknown main-gate means no publish.
