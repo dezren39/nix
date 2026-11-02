@@ -86,7 +86,108 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: developing-today/code/.github/actions/pm-dispatch-ci-fix@main
+      # Inlined from developing-today/code's pm-dispatch-ci-fix action:
+      # referencing that repository's actions has repeatedly failed during
+      # runner setup with "Could not find file .../_staging/code-<sha>/archive"
+      # (see #1350 and this workflow's failed ci-fix job). Keep the same
+      # dedupe, routing, and pm-dispatch API behavior without downloading its
+      # composite-action archive.
+      - name: Dispatch ci-fix via pm-dispatch
         continue-on-error: true
         env:
           GH_TOKEN: "${{ github.token }}"
+          INPUT_REPO: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          title="ci-fix: ${WORKFLOW_NAME} failing on ${BRANCH}"
+          issues_json="$(gh issue list --repo "$INPUT_REPO" --state open \
+            --search "\"$title\" in:title" --json number,title)"
+          if ! printf '%s' "$issues_json" | jq -e 'type == "array"' >/dev/null; then
+            echo "::error::ci-fix dedupe search returned unexpected output: $issues_json" >&2
+            exit 1
+          fi
+          issue_number="$(printf '%s' "$issues_json" | jq -r \
+            --arg title "$title" '[.[] | select(.title == $title)] | first | .number // empty')"
+
+          prompt_text="$(cat <<EOF
+          A CI workflow failed. Diagnose the failure and fix its ROOT CAUSE.
+
+          Failed workflow: ${WORKFLOW_NAME}
+          Failed run: ${RUN_URL} (run id: ${RUN_ID})
+          Branch (head branch of the failed run): ${BRANCH}
+          Head SHA: ${HEAD_SHA}
+          Pull request associated with the failed run (may be empty): ${PR_NUMBER}
+
+          ## Dispatch context — read this first
+
+          - You are running in this repository's LAPTOP CHECKOUT (the repo's primary checkout on the owner's laptop). Work there; do not clone the repo elsewhere.
+          - A tracking issue and queue task were already created for this run by the dispatcher. Do NOT create another tracking issue for this run, and do not dispatch further tasks.
+          - There is NO plan-approval step. Proceed directly; do not stop to ask for approval of a plan.
+
+          ## Instructions
+
+          - Start from the failed run's evidence. Inspect the failed jobs and logs, for example with: gh run view ${RUN_ID} --log-failed
+          - Fix the ROOT CAUSE on branch ${BRANCH} (head ${HEAD_SHA}). Do not merely re-run the workflow, and do not disable, skip, or delete failing tests/checks to make it green.
+          - If a PR number is given, take it into account when deciding whether to push the fix to that PR's branch or open a new PR.
+          - Open or update a PR following this repository's conventions (AGENTS.md / PR template). Reference the failed run (${RUN_URL}) and tracking issue.
+          - Merging is permitted, never required: merge only if all checks pass, relevant tests pass, and the change is low-risk. Otherwise leave the PR open and state confidence and what a human should check.
+          - If the failure is environmental or a flake rather than a code defect, do NOT force a code change. Report that conclusion with log evidence in your summary and on the tracking issue.
+          EOF
+          )"
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::ci-fix dispatch requires 'permissions: id-token: write' to mint a pm-dispatch OIDC token." >&2
+            exit 1
+          fi
+          oidc_token="$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pm-dispatch" | jq -r '.value // empty')"
+          if [ -z "$oidc_token" ]; then
+            echo "::error::ci-fix dispatch failed to mint a pm-dispatch OIDC token." >&2
+            exit 1
+          fi
+
+          is_default_branch=false
+          priority=normal
+          if [ -n "$DEFAULT_BRANCH" ] && [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+            is_default_branch=true
+            priority=high
+          fi
+
+          if [ -z "$issue_number" ] && [ "$is_default_branch" = true ]; then
+            payload="$(jq -n \
+              --arg repo "$INPUT_REPO" --arg title "$title" --arg prompt "$prompt_text" \
+              --arg priority "$priority" \
+              '{repo:$repo,title:$title,prompt:$prompt,wait:true,priority:$priority}')"
+            endpoint=sessions
+          else
+            issue=true
+            if [ -n "$issue_number" ]; then issue=false; fi
+            payload="$(jq -n \
+              --arg repo "$INPUT_REPO" --arg title "$title" --arg prompt "$prompt_text" \
+              --arg priority "$priority" --argjson issue "$issue" \
+              '{repo:$repo,title:$title,prompt:$prompt,issue:$issue,priority:$priority,kind:"ci_investigation"}')"
+            if [ -n "$issue_number" ]; then
+              payload="$(printf '%s' "$payload" | jq --argjson issue_number "$issue_number" '. + {issue_number:$issue_number}')"
+            fi
+            endpoint=tasks
+          fi
+
+          response="$(curl -sS -w $'\n%{http_code}' -X POST "https://dispatch.security.cab/v1/$endpoint" \
+            -H "Authorization: Bearer $oidc_token" \
+            -H "Content-Type: application/json" -d "$payload")"
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::pm-dispatch POST /v1/$endpoint failed (HTTP $http_code):" >&2
+            echo "$body" >&2
+            exit 1
+          fi
+          echo "$body"

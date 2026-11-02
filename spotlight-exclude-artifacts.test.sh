@@ -273,7 +273,7 @@ export HOME="$SYS_HOME"
 # marker write is a no-op success (counted as marked, writes nothing).
 REAL_TOUCH="$(command -v touch)"
 mkdir -p "$TMP_ROOT/fakebin"
-printf '#!/usr/bin/env bash\ncase "${1:-}" in\n  "%s"*) exec "%s" "$@" ;;\n  *) exit 0 ;;\nesac\n' "$TMP_ROOT" "$REAL_TOUCH" > "$TMP_ROOT/fakebin/touch"
+printf '#!%s\ncase "${1:-}" in\n  "%s"*) exec "%s" "$@" ;;\n  *) exit 0 ;;\nesac\n' "$BASH" "$TMP_ROOT" "$REAL_TOUCH" > "$TMP_ROOT/fakebin/touch"
 chmod +x "$TMP_ROOT/fakebin/touch"
 OLD_PATH="$PATH"
 export PATH="$TMP_ROOT/fakebin:$PATH"
