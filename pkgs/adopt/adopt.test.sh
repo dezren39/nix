@@ -14,6 +14,8 @@
 #   I  an empty --host or --flake value is rejected with exit 2 (#1212)
 #   J  one-line entries ending in a trailing comment are recognized as
 #      ended (#1269): copying one copies exactly that entry, even as last host
+#   K  a template file whose read fails (sed stub exits 1) fails loudly:
+#      non-zero exit naming the template, flake.nix unchanged (#1361)
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -217,8 +219,23 @@ grep -q '^      COPYMAC = { system = "x86_64-darwin"; }; # last host$' "$TMP_ROO
 [[ "$(grep -c '^    };$' "$TMP_ROOT/j/flake.nix")" == 1 ]] && ok "J: hosts map still closes exactly once" || fail "J: hosts map closing braces duplicated (invalid Nix)"
 [[ "$(grep -c 'x86_64-darwin' "$TMP_ROOT/j/flake.nix")" == 2 ]] && ok "J: last-host body present exactly twice (original + copy)" || fail "J: last-host body count wrong after copy"
 
+# K: a template file that cannot be read fails loudly, changing nothing (#1361)
+new_flake "$TMP_ROOT/k"
+printf 'extraModules = [ ];\n' > "$TMP_ROOT/k/template.nix"
+cp "$TMP_ROOT/k/flake.nix" "$TMP_ROOT/k/flake.before"
+mkdir -p "$TMP_ROOT/kbin"
+printf '#!/bin/sh\nexit 1\n' > "$TMP_ROOT/kbin/sed"
+chmod +x "$TMP_ROOT/kbin/sed"
+out="$(cd "$TMP_ROOT/k" && PATH="$TMP_ROOT/kbin:$PATH" bash "$SCRIPT" ./template.nix 2>&1)" \
+  && fail "K: unreadable template exited 0" || ok "K: unreadable template fails"
+[[ "$out" == *"cannot read template file './template.nix'"* ]] \
+  && ok "K: error names the template file" || fail "K: error does not name the template file: $out"
+cmp -s "$TMP_ROOT/k/flake.before" "$TMP_ROOT/k/flake.nix" \
+  && ok "K: flake.nix unchanged" || fail "K: flake.nix changed"
+
 if (( failures )); then
   echo "$failures failure(s)" >&2
   exit 1
 fi
 echo "all adopt tests passed"
+
