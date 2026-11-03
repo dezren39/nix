@@ -24,6 +24,10 @@ ignored. These probes pin the new contract:
 - A package-lock entry whose version is present but not a string
   exits 2 naming the file and entry, with no regenerate advice
   (#1204) -- malformed input, not drift.
+- A bun.lock that yields zero package entries while package.json
+  declares dependencies (garbage text, truncated document) exits 2
+  naming bun.lock, never the exit-1 drift report; a zero-dependency
+  package is not newly failed (#1249).
 
 Run: python3 check-lock-sync.test.py  (exit 0 = all probes passed)
 """
@@ -204,6 +208,54 @@ def main():
                 "not valid UTF-8" in result.stderr,
                 f"(stderr={result.stderr!r})",
             )
+
+        # bun.lock extracts zero entries (#1249): garbage, truncated, or
+        # empty content is a malformed document -- exit 2 naming the file,
+        # never the exit-1 drift report whose remedy ("regenerate
+        # bun.lock") cannot be applied to a document that was never read.
+        for name, text in (
+            ("garbage bun.lock", "this is not a lockfile at all\n"),
+            (
+                "truncated bun.lock",
+                '{\n  "lockfileVersion": 1,\n  "workspaces": {\n',
+            ),
+            ("empty bun.lock", ""),
+        ):
+            d = os.path.join(tmp, name.replace(" ", "-"))
+            seed_package(d)
+            write(os.path.join(d, "bun.lock"), text)
+            result = run(d)
+            expect_invocation_error(name, result, os.path.join(d, "bun.lock"))
+            check(
+                f"{name} is not reported as drift",
+                "Regenerate" not in result.stderr
+                and "lockfiles out of sync" not in result.stderr,
+                f"(stderr={result.stderr!r})",
+            )
+
+        # A zero-dependency package is not newly failed (#1249): with no
+        # declared dependency there is nothing for bun entries to disagree
+        # with, so an entry-less bun.lock stays a clean exit 0.
+        nodeps = os.path.join(tmp, "zero-deps")
+        os.makedirs(nodeps, exist_ok=True)
+        write(
+            os.path.join(nodeps, "package.json"),
+            json.dumps({"dependencies": {}}),
+        )
+        write(
+            os.path.join(nodeps, "package-lock.json"),
+            json.dumps({"packages": {}}),
+        )
+        write(
+            os.path.join(nodeps, "bun.lock"),
+            '{\n  "lockfileVersion": 1\n}\n',
+        )
+        result = run(nodeps)
+        check(
+            "zero-dependency package with no bun entries exits 0",
+            result.returncode == 0 and "lockfiles in sync" in result.stdout,
+            f"(rc={result.returncode}, stderr={result.stderr!r})",
+        )
 
         # In-sync fixture: exit 0.
         synced = os.path.join(tmp, "synced")

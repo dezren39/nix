@@ -23,8 +23,11 @@ version in both lockfiles, 1 (with the mismatches listed) when the
 lockfiles disagree, 2 for an invocation error — an unknown or extra
 argument, or a package file missing/unreadable/wrong-shaped — so a mistyped call
 can never be mistaken for drift by a caller branching on exit 1
-(#1141; the #1133 shape). Invocation errors are one line on stderr
-naming the offending argument or file, never a traceback.
+(#1141; the #1133 shape). A bun.lock that parses to zero package entries
+while package.json declares dependencies is wrong-shaped too: exit 2
+naming bun.lock as malformed (#1249), not the exit-1 drift report.
+Invocation errors are one line on stderr naming the offending argument
+or file, never a traceback.
 """
 
 import json
@@ -161,6 +164,20 @@ def main() -> int:
         **package.get("dependencies", {}),
         **package.get("devDependencies", {}),
     }
+    # Empty-extraction guard (#1249): bun_versions() is regex-based, so a
+    # bun.lock that is garbage, truncated, or otherwise not a lockfile
+    # extracts zero entries and every declared dependency then reads
+    # "missing from a lockfile" -- the exit-1 drift verdict with
+    # regenerate advice. A package with at least one dependency must have
+    # at least one bun entry: zero entries means the document is
+    # unreadable, an invocation error (exit 2), never a drift report. A
+    # zero-dependency package legitimately has no entries and is
+    # unaffected.
+    if deps and not bun:
+        return invocation_error(
+            f"{root / 'bun.lock'}: malformed lockfile -- no package entries"
+            " could be read"
+        )
     problems = []
     for name in sorted(deps):
         npm_v, bun_v = npm.get(name), bun.get(name)
