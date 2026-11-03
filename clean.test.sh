@@ -24,6 +24,9 @@ SCRIPT="$SELF_DIR/clean.sh"
 # Shared conformance probe matrix helpers (#1146, design #1145 phase 1).
 # shellcheck source=lib/arg-probe.sh
 . "$SELF_DIR/lib/arg-probe.sh"
+# Shared conformance probe matrix for operation failures (design #1339 phase 1).
+# shellcheck source=lib/outcome-probe.sh
+. "$SELF_DIR/lib/outcome-probe.sh"
 
 
 TMP_ROOT="$(mktemp -d)"
@@ -327,6 +330,11 @@ PATH="$OLD_PATH"
 case "$ERR" in
   *"/private/var/folders sweep failed"*) echo "ok: --tmpdir failure named the sweep as failed" ;;
   *) fail "--tmpdir failure did not name the sweep on stderr (got: $ERR)" ;;
+esac
+case "$ERR" in
+  *"clean.sh: 1 operation(s) failed"*"$vf"*)
+    echo "ok: --tmpdir failure includes the counted outcome summary" ;;
+  *) fail "--tmpdir failure did not include the counted summary (got: $ERR)" ;;
 esac
 [ -e "$vf/aa/file" ] && echo "ok: shimmed entry left in place" || fail "shimmed entry was removed anyway"
 [ ! -e "$vf/bb" ] && [ ! -e "$vf/zz/file2" ] && echo "ok: rest of the sweep still ran" || fail "sweep stopped at the failure"
@@ -641,6 +649,9 @@ for bad in abc 0 2147483648 99999999999999999999999999; do
   probe_rejected "clean.sh: --docker-age must be a positive integer" --dry-run --path "$VALID" --docker-age "$bad"
 done
 probe_accepted --path "$VALID" --depth 08 --docker-age 08 --only-unknown-scratch
+
+# ─── Shared operation-outcome conformance matrix (#1339) ───────────────
+outcome_probe_matrix
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all clean.sh flag-shaped-value checks passed"
