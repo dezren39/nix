@@ -1525,6 +1525,24 @@ rec {
             echo "  gh         $(gh --version 2>/dev/null | head -1 || echo 'not found')"
           '';
         };
+        # Lean shell for CI warming (fleet-build image + binary caches).
+        # The default shell pulls this repo's own from-source builds
+        # (selfPkgs.opencode / wrangler), which a CI export job has to
+        # compile from scratch — that realisation ran 2h+ and died
+        # (dezren39/nix#1381). Everything below substitutes from
+        # cache.nixos.org instead: same tools, no local builds.
+        fleet = pkgs.mkShell {
+          packages = [
+            pkgs.opencode
+            pkgs.wrangler
+            pkgs.just
+            pkgs.nixfmt
+            pkgs.git
+            pkgs.gh
+            pkgs.jq
+            pkgs.ripgrep
+          ];
+        };
       }
     );
   };
