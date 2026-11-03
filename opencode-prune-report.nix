@@ -39,12 +39,31 @@ let
   # runCommandLocal wrap configuration.nix uses for spotlight-exclude-artifacts
   # and git-maintain-repos. A bare ./clean.sh in the store has no library
   # beside it and dies at source time.
+  #
+  # clean.sh also reaches its $SELF_DIR siblings, and the store copy must
+  # carry every one of them or the report dies mid-run (#1436):
+  #   executed directly (not via run()): git-discover-repos -- the
+  #     --dry-run --no-git-maintenance report shape execs it at the
+  #     discovery pass and exits with its status, so a missing copy was
+  #     a fatal 127 that never reached the opencode scratch section;
+  #     var-folders-clean.sh (the --tmpdir sweep helper; not reached in
+  #     the report shape, which never sets CLEAN_TMPDIR).
+  #   executed via run() (echo-only under --dry-run, and the report
+  #     passes --no-git-maintenance besides): git-maintain-repos.
+  #   guarded reads ([ -f ... ]; absence silently skips the section):
+  #     casks.nix (brew cask list) and masApps.nix (mas app list).
+  # The siblings source lib/common.sh themselves, already copied above.
   tools = pkgs.runCommandLocal "opencode-prune-report-tools" { } ''
     mkdir -p $out/lib
     cp ${./clean.sh} $out/clean.sh
     cp ${./opencode-db-backup-prune.sh} $out/opencode-db-backup-prune.sh
     cp ${./lib/common.sh} $out/lib/common.sh
-    chmod +x $out/clean.sh $out/opencode-db-backup-prune.sh
+    cp ${./git-discover-repos} $out/git-discover-repos
+    cp ${./git-maintain-repos} $out/git-maintain-repos
+    cp ${./var-folders-clean.sh} $out/var-folders-clean.sh
+    cp ${./casks.nix} $out/casks.nix
+    cp ${./masApps.nix} $out/masApps.nix
+    chmod +x $out/clean.sh $out/opencode-db-backup-prune.sh $out/git-discover-repos $out/git-maintain-repos $out/var-folders-clean.sh
   '';
 
   report = pkgs.writeShellScript "opencode-prune-report" ''
