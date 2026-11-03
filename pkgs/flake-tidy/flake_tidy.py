@@ -797,6 +797,7 @@ def _normalize_vcs_url(url: str) -> str:
     return u + (qsep + query if qsep else "")
 
 
+@functools.lru_cache(maxsize=512)
 def _normalize_ref(ref: str) -> str:
     """Canonicalize a ref spelling for grouping (#555).
 
@@ -810,6 +811,8 @@ def _normalize_ref(ref: str) -> str:
     return ref
 
 
+# Bolt Optimization: Memoize pure URL authority canonicalization for fast grouping in source_key
+@functools.lru_cache(maxsize=512)
 def _canonicalize_url_authority(url: str) -> str:
     """Canonicalize ONLY the scheme + authority of a URL for grouping (#611).
 
@@ -4665,6 +4668,19 @@ def analyze_flatten(
     root_node_names = set(v for v in root_inputs.values() if isinstance(v, str))
     max_depth = config["max-depth"]
 
+    # Bolt Optimization: Precompute root equivalent source keys and locked hashes ONCE
+    # into sets, turning an O(M x R) nested loop recomputation into O(1) set membership lookups.
+    root_source_keys: set[str] = set()
+    root_locked_hashes: set[str] = set()
+    for _iname, rnode in root_inputs.items():
+        if isinstance(rnode, str):
+            rdata = nodes.get(rnode, {})
+            if "original" in rdata:
+                root_source_keys.add(source_key(rdata))
+                rhash = locked_hash(rdata)
+                if rhash:
+                    root_locked_hashes.add(rhash)
+
     # Find all transitive-only nodes
     transitive_candidates: dict[str, list[list[tuple[str, str, bool]]]] = {}
 
@@ -4681,20 +4697,7 @@ def analyze_flatten(
         # cross-type matches (e.g. indirect vs github) are caught by dedup.
         key = source_key(node_data)
         node_hash = locked_hash(node_data)
-        has_root_equivalent = False
-        for _iname, rnode in root_inputs.items():
-            if not isinstance(rnode, str):
-                continue
-            rdata = nodes.get(rnode, {})
-            if "original" not in rdata:
-                continue
-            if source_key(rdata) == key:
-                has_root_equivalent = True
-                break
-            if node_hash and locked_hash(rdata) == node_hash:
-                has_root_equivalent = True
-                break
-        if has_root_equivalent:
+        if key in root_source_keys or (node_hash and node_hash in root_locked_hashes):
             if verbose:
                 print(f"  skip flatten {node_name}: root equivalent exists (use dedup)")
             continue
