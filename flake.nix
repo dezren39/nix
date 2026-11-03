@@ -220,9 +220,22 @@ rec {
     # this evaluated value as a file; see #476). The
     # forks' own nixpkgs stay unfollowed: their node_modules fixed-output
     # hashes are computed with the bun in that nixpkgs.
+    # #1384: openchamber is this flake's only developing-today input, and
+    # its own transitive inputs (fleet, opencode, mcpx-src) are pinned to
+    # versions that match its node_modules hashes and its mcpx/Go pairing.
+    # Hoisting them to root would drag them onto this flake's nixpkgs (the
+    # flatten pass keeps the newest duplicate), which breaks mcpx's
+    # buildGo127Module lookup. Keep the whole subtree unpinned/unflattened,
+    # like the forks' nixpkgs above.
     flakeTidy.exclude.follows = [
       "openchamber/opencode.nixpkgs"
       "openchamber.nixpkgs"
+    ];
+    flakeTidy.exclude.flatten = [
+      "fleet"
+      "mcpx-src"
+      "nixpkgs"
+      "opencode"
     ];
     eachSystem =
       f:
