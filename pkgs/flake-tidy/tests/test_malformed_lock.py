@@ -1,4 +1,4 @@
-"""Malformed flake.lock handling (#1234, #1237, #1243, #1251).
+"""Malformed flake.lock handling (#1234, #1237, #1243, #1248, #1251).
 
 load_lock() must validate the lock shape and raise LockLoadError (mapped
 by main() to a clean exit-2 error naming flake.lock) instead of letting
@@ -266,3 +266,126 @@ class TestMalformedLockMain:
         code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, ["--check"])
         assert code == 0
         assert "check passed" in out
+
+
+class TestLoadLockLeafValidation:
+    """Leaf layer (#1248): locked/original string leaves, node 'flake',
+    top-level 'version'. Unknown extra fields stay accepted (#1247
+    rule 2); numeric format leaves (lastModified, revCount) are not
+    string-checked."""
+
+    @staticmethod
+    def _lock_with_node(node_extra):
+        node = {
+            "locked": {
+                "type": "github",
+                "owner": "o",
+                "repo": "r",
+                "rev": "abc",
+                "narHash": "sha256-x",
+                "lastModified": 1700000000,
+            },
+            "original": {"type": "github", "owner": "o", "repo": "r", "ref": "main"},
+        }
+        node.update(node_extra)
+        return {
+            "nodes": {"root": {"inputs": {"a": "a"}}, "a": node},
+            "root": "root",
+            "version": 7,
+        }
+
+    @pytest.mark.parametrize(
+        "section,leaf,value",
+        [
+            ("locked", "rev", 42),
+            ("locked", "type", 42),
+            ("locked", "narHash", ["x"]),
+            ("locked", "owner", {"x": 1}),
+            ("original", "ref", ["x"]),
+            ("original", "url", 42),
+            ("original", "rev", None),
+        ],
+        ids=[
+            "locked-rev-number",
+            "locked-type-number",
+            "locked-narHash-list",
+            "locked-owner-dict",
+            "original-ref-list",
+            "original-url-number",
+            "original-rev-null",
+        ],
+    )
+    def test_non_string_string_leaf_raises(self, tmp_path, section, leaf, value):
+        d = tmp_path / "badleaf"
+        d.mkdir()
+        lock = self._lock_with_node({})
+        lock["nodes"]["a"][section][leaf] = value
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(
+            flake_tidy.LockLoadError,
+            match=f"flake.lock.*{leaf}.*{section}.*node .a.",
+        ):
+            flake_tidy.load_lock(str(d))
+
+    @pytest.mark.parametrize("flake", ["yes", 1, 0, ["true"], None])
+    def test_non_boolean_node_flake_raises(self, tmp_path, flake):
+        d = tmp_path / "badflake"
+        d.mkdir()
+        lock = self._lock_with_node({"flake": flake})
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(
+            flake_tidy.LockLoadError, match="flake.lock.*flake.*node .a."
+        ):
+            flake_tidy.load_lock(str(d))
+
+    @pytest.mark.parametrize("version", ["7", True, False, 7.0, [7], {"v": 7}])
+    def test_non_integer_version_raises(self, tmp_path, version):
+        d = tmp_path / "badversion"
+        d.mkdir()
+        lock = self._lock_with_node({})
+        lock["version"] = version
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(
+            flake_tidy.LockLoadError, match="flake.lock.*version"
+        ):
+            flake_tidy.load_lock(str(d))
+
+    def test_well_formed_lock_with_all_leaf_kinds_loads(self, tmp_path):
+        d = tmp_path / "goodleaves"
+        d.mkdir()
+        lock = self._lock_with_node({"flake": False})
+        lock["nodes"]["a"]["locked"]["revCount"] = 3
+        (d / "flake.lock").write_text(json.dumps(lock))
+        assert flake_tidy.load_lock(str(d)) == lock
+
+    def test_unknown_extra_fields_stay_accepted(self, tmp_path):
+        d = tmp_path / "extrafields"
+        d.mkdir()
+        lock = self._lock_with_node({"futureNodeField": {"nested": [1, True]}})
+        lock["nodes"]["a"]["locked"]["futureLeaf"] = {"anything": 42}
+        lock["nodes"]["a"]["original"]["anotherFutureLeaf"] = [1, 2]
+        lock["futureTopLevel"] = "yes"
+        (d / "flake.lock").write_text(json.dumps(lock))
+        assert flake_tidy.load_lock(str(d)) == lock
+
+    def test_leaf_check_mode_exit_2_no_traceback(self, tmp_path, monkeypatch, capsys):
+        lock = self._lock_with_node({})
+        lock["nodes"]["a"]["locked"]["rev"] = 42
+        flake_dir, cfg = _write_flake_dir(tmp_path, json.dumps(lock))
+        code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, ["--check"])
+        assert code == 2
+        assert "flake.lock" in err
+        assert "'rev'" in err
+        assert "Traceback" not in out + err
+
+    def test_version_non_check_mode_exit_2_no_traceback(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        lock = self._lock_with_node({})
+        lock["version"] = "7"
+        flake_dir, cfg = _write_flake_dir(tmp_path, json.dumps(lock))
+        code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, [])
+        assert code == 2
+        assert "flake.lock" in err
+        assert "'version'" in err
+        assert "Traceback" not in out + err
