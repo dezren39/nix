@@ -320,37 +320,52 @@ rec {
         # 2026-10-19 at mcpx-src 7274889). launchd cannot hand over its pid
         # either, so this config never upgrades in place: a new mcpx
         # restarts the agent (configuration.nix). Everything else runs.
+        mcpxRewriteCheckPhase =
+          {
+            phase,
+            pattern,
+            replacement,
+            purpose,
+          }:
+          let
+            rewritten = builtins.replaceStrings [ pattern ] [ replacement ] phase;
+          in
+          if rewritten == phase then
+            throw "mcpx ${purpose}: expected checkPhase line `${pattern}` was not found; update the mcpx checkPhase rewrite in flake.nix."
+          else
+            rewritten;
         mcpx =
           (pkgs.callPackage (inputs.mcpx-src + "/pkgs/mcpx/package.nix") { inherit bun-bin; }).overrideAttrs
             (
               old:
-              pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+              pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+                # The retention/reopen regression test uses a 400ms TTL and
+                # only a 200ms margin before reopening its SQLite store. Run
+                # test packages serially so concurrent package tests cannot
+                # starve that timing-sensitive check on CI; do not skip it.
+                # Keep this rewrite guarded because replaceStrings otherwise
+                # silently does nothing if mcpx changes its canonical command.
+                checkPhase = mcpxRewriteCheckPhase {
+                  phase = old.checkPhase;
+                  pattern = "go test -timeout 30m $pkgs";
+                  replacement = "go test -p 1 -timeout 30m $pkgs";
+                  purpose = "Linux test serialization";
+                };
+              }
+              // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
                 # (The SOCK_CLOEXEC substituteInPlace patch that used to
                 # live here is gone: upstream fixed the test helper in
                 # developing-today/code#237 (PR #3288), and the pinned
                 # mcpx-src now carries the portable helper.)
-                # The package's own checkPhase runs a bare
-                # `go test -timeout 30m $pkgs`, so checkFlags would be
-                # ignored; put -skip on that line instead.
-                # developing-today/code#418: builtins.replaceStrings is a
-                # silent no-op when its pattern is absent, so a canonical
-                # checkPhase change in code's pkgs/mcpx/package.nix arriving
-                # via an mcpx-src pin bump would silently drop this skip and
-                # break the darwin build on a Mac. Fail evaluation loudly
-                # instead; the mcpx-darwin-skip flake check forces this
-                # attribute on every system, so Linux CI catches drift too.
-                checkPhase =
-                  let
-                    rewritten =
-                      builtins.replaceStrings
-                        [ "go test -timeout 30m $pkgs" ]
-                        [ "go test -timeout 30m -skip='${mcpxDarwinSkip}' $pkgs" ]
-                        old.checkPhase;
-                  in
-                  if rewritten == old.checkPhase then
-                    throw "mcpx darwin skip: the canonical checkPhase line `go test -timeout 30m $pkgs` was not found in the mcpx-src package.nix checkPhase, so the darwin -skip rewrite would silently do nothing (developing-today/code#418). Update the replaceStrings pattern in flake.nix to match the new canonical line."
-                  else
-                    rewritten;
+                # Darwin cannot run the Linux-only takeover/handoff tests.
+                # Keep the rewrite guarded so an upstream checkPhase change
+                # cannot silently drop the skip (developing-today/code#418).
+                checkPhase = mcpxRewriteCheckPhase {
+                  phase = old.checkPhase;
+                  pattern = "go test -timeout 30m $pkgs";
+                  replacement = "go test -timeout 30m -skip='${mcpxDarwinSkip}' $pkgs";
+                  purpose = "Darwin takeover-test skip";
+                };
               }
             );
         mcpxDarwinSkip = "^(${
