@@ -3,10 +3,21 @@ name: agents
 # Thin caller: single home for this repo's dispatch-scheduled agents,
 # replacing the retired Jules scheduled tasks + Suggestions.
 #
-# This file is only a caller: the task list, slot table, and prompts live
-# centrally in developing-today/code — in the reusable workflow
+# The task list, slot table, and prompts live centrally in
+# developing-today/code — in the reusable workflow
 # .github/workflows/pm-scheduled.yml and the pm-dispatch-task prompt
-# library.
+# library. This caller INLINES that workflow's behavior instead of
+# `uses:`-ing it (#1367): every job that references a
+# developing-today/code action or reusable workflow fails at
+# "Set up job" because the runner cannot download that repo's action
+# archive ("Could not find file '.../_staging/code-<sha>/archive'"),
+# across many SHAs since at least 2026-11-01 — the same breakage
+# that inlined pm-dispatch-queue in main-broken-watcher.yml (#1350).
+# The task prompts are fetched at runtime over HTTPS
+# (raw.githubusercontent.com), which serves fine; only the runner's
+# action-archive download path is broken. If upstream fixes that
+# download, this job can revert to
+# `uses: developing-today/code/.github/workflows/pm-scheduled.yml@main`.
 #
 # Times are America/Chicago converted from CDT: tasks (bolt + palette)
 # at 00:00 CDT = 05:00 UTC, suggestions at 11:00 CDT = 16:00 UTC.
@@ -52,10 +63,334 @@ permissions:
 
 jobs:
   scheduled:
-    uses: developing-today/code/.github/workflows/pm-scheduled.yml@main
+    runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
-    with:
-      schedule: ${{ github.event.schedule }}
-      tasks: ${{ github.event_name == 'workflow_dispatch' && inputs.task != 'all' && inputs.task || '' }}
+    steps:
+      # Inlined from developing-today/code's pm-scheduled.yml resolve
+      # step (#1367; see the header comment). Maps the fired cron
+      # schedule to a task list via the slot table; an explicit
+      # `tasks` input (workflow_dispatch) is used verbatim.
+      - name: Resolve the target repo and the task list
+        id: resolve
+        shell: bash
+        env:
+          INPUT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_TASKS: ${{ github.event_name == 'workflow_dispatch' && inputs.task != 'all' && inputs.task || '' }}
+          INPUT_REPO: ""
+          CALLER_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Effective repo: the explicit input wins; otherwise the
+          # repository that called this workflow.
+          repo="$INPUT_REPO"
+          if [ -z "$repo" ]; then
+            repo="$CALLER_REPO"
+          fi
+
+          # Task list: an explicit `tasks` input (trimmed) is used
+          # verbatim (a comma-separated list) and the slot table is
+          # not consulted.
+          tasks_input="$INPUT_TASKS"
+          # Trim leading/trailing whitespace.
+          tasks_input="${tasks_input#"${tasks_input%%[![:space:]]*}"}"
+          tasks_input="${tasks_input%"${tasks_input##*[![:space:]]}"}"
+
+          if [ -n "$tasks_input" ]; then
+            tasks="$tasks_input"
+          else
+            # ======================================================
+            # THE SLOT TABLE — schedule -> tasks resolution.
+            #
+            # This case statement is the SINGLE place where a fired
+            # cron schedule is mapped to the tasks it runs. All cron
+            # expressions are UTC (GitHub Actions cron is always
+            # UTC); the comments give the repo each slot belongs to
+            # and the local time in America/Chicago (CDT, UTC-5).
+            #
+            # NOTE: the patterns are quoted on purpose — quoted,
+            # they match literally; unquoted, the `*` in a cron
+            # expression would be a glob wildcard.
+            # ======================================================
+            case "$INPUT_SCHEDULE" in
+              # --- Task slots -> bolt,palette ---
+              "0 1 * * *")   tasks="bolt,palette" ;; # developing-today/code — 20:00 CDT (previous evening)
+              "0 2 * * *")   tasks="bolt,palette" ;; # developing-today/openchamber — 21:00 CDT (previous evening)
+              "0 0 * * *")   tasks="bolt,palette" ;; # developing-today/opencode — 19:00 CDT (previous evening)
+              "0 5 * * *")   tasks="bolt,palette" ;; # dezren39/nix + dezren39/dezren39 — 00:00 CDT
+              "30 13 * * *") tasks="bolt,palette" ;; # developing-today/zettel — 08:30 CDT
+
+              # --- Suggestions slots -> suggestions ---
+              "0 13 * * *") tasks="suggestions" ;; # developing-today/code — 08:00 CDT
+              "0 14 * * *") tasks="suggestions" ;; # developing-today/openchamber — 09:00 CDT
+              "0 15 * * *") tasks="suggestions" ;; # developing-today/opencode — 10:00 CDT
+              "0 16 * * *") tasks="suggestions" ;; # dezren39/nix — 11:00 CDT
+              "0 17 * * *") tasks="suggestions" ;; # developing-today/zettel — 12:00 CDT
+              "0 18 * * *") tasks="suggestions" ;; # dezren39/dezren39 — 13:00 CDT
+
+              # --- Empty or unknown schedule -> everything ---
+              *) tasks="bolt,palette,suggestions" ;;
+            esac
+          fi
+
+          # Per-task booleans for the step `if:`s below — cleaner
+          # than contains() on the comma string in each step. Spaces
+          # are stripped for the membership test only, so
+          # "bolt, palette" gates the same as "bolt,palette"; the
+          # `tasks` output itself stays verbatim.
+          compact=",$(printf '%s' "$tasks" | tr -d '[:space:]'),"
+          has_bolt="false"
+          has_palette="false"
+          has_suggestions="false"
+          case "$compact" in *",bolt,"*) has_bolt="true" ;; esac
+          case "$compact" in *",palette,"*) has_palette="true" ;; esac
+          case "$compact" in *",suggestions,"*) has_suggestions="true" ;; esac
+
+          {
+            echo "repo=$repo"
+            echo "tasks=$tasks"
+            echo "has_bolt=$has_bolt"
+            echo "has_palette=$has_palette"
+            echo "has_suggestions=$has_suggestions"
+          } >> "$GITHUB_OUTPUT"
+          echo "agents resolve: repo=$repo schedule='${INPUT_SCHEDULE}' tasks=$tasks has_bolt=$has_bolt has_palette=$has_palette has_suggestions=$has_suggestions"
+
+      # THE LIST — one dispatch step per task, following the
+      # pm-scheduled pattern. Each step inlines the
+      # pm-dispatch-task (resolve for non-ci-fix tasks) +
+      # pm-dispatch-start (POST /v1/sessions, wait for the launch)
+      # behavior for its task: the prompt comes from the
+      # pm-dispatch-task prompt library, fetched at runtime over
+      # HTTPS (the library stays centrally managed; only the
+      # runner's action-archive download is broken — see the header
+      # comment). The calling job grants `permissions: id-token:
+      # write` so each step can mint a GitHub Actions OIDC token
+      # (audience pm-dispatch) to authenticate.
+      - name: Dispatch bolt
+        id: bolt
+        if: steps.resolve.outputs.has_bolt == 'true'
+        shell: bash
+        env:
+          INPUT_REPO: ${{ steps.resolve.outputs.repo }}
+          INPUT_TASK: bolt
+          INPUT_PROMPT_URL: https://raw.githubusercontent.com/developing-today/code/main/.github/actions/pm-dispatch-task/prompts/bolt.md
+        run: |
+          set -euo pipefail
+          # Inlined pm-dispatch-start (#1367): launch a tracked
+          # OpenCode session via pm-dispatch (POST /v1/sessions).
+          if ! resolved_prompt="$(curl -fsS "$INPUT_PROMPT_URL")"; then
+            echo "::error::agents dispatch: failed to fetch prompt for task '$INPUT_TASK': $INPUT_PROMPT_URL" >&2
+            exit 1
+          fi
+          if [ -z "$resolved_prompt" ]; then
+            echo "::error::agents dispatch: prompt for task '$INPUT_TASK' is empty: $INPUT_PROMPT_URL" >&2
+            exit 1
+          fi
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::agents dispatch: ACTIONS_ID_TOKEN_REQUEST_URL / ACTIONS_ID_TOKEN_REQUEST_TOKEN are not set. The calling job must grant 'permissions: id-token: write' so an OIDC token can be minted." >&2
+            exit 1
+          fi
+          task_capitalized="${INPUT_TASK^}"
+          title="Scheduled ${task_capitalized} — ${INPUT_REPO}"
+          oidc_token="$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pm-dispatch" | jq -r '.value // empty')"
+          if [ -z "$oidc_token" ]; then
+            echo "::error::agents dispatch: failed to mint a GitHub Actions OIDC token (audience pm-dispatch)." >&2
+            exit 1
+          fi
+          payload="$(jq -n \
+            --arg repo "$INPUT_REPO" \
+            --arg title "$title" \
+            --arg prompt "$resolved_prompt" \
+            --argjson wait true \
+            '{repo: $repo, title: $title, prompt: $prompt, wait: $wait}')"
+          response="$(curl -sS -w $'\n%{http_code}' -X POST "https://dispatch.security.cab/v1/sessions" \
+            -H "Authorization: Bearer $oidc_token" \
+            -H "Content-Type: application/json" \
+            -d "$payload")"
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::agents dispatch: pm-dispatch POST /v1/sessions failed (HTTP $http_code):" >&2
+            echo "$body" >&2
+            exit 1
+          fi
+          echo "$body"
+          task_id="$(printf '%s' "$body" | jq -r '.task_id // empty')"
+          session_id="$(printf '%s' "$body" | jq -r '.session_id // empty')"
+          issue_number="$(printf '%s' "$body" | jq -r '.issue_number // empty')"
+          issue_url=""
+          if [ -n "$issue_number" ]; then
+            issue_url="https://github.com/${INPUT_REPO}/issues/${issue_number}"
+          fi
+          {
+            echo "task_id=$task_id"
+            echo "session_id=$session_id"
+            echo "issue_number=$issue_number"
+            echo "issue_url=$issue_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch palette
+        id: palette
+        if: steps.resolve.outputs.has_palette == 'true'
+        shell: bash
+        env:
+          INPUT_REPO: ${{ steps.resolve.outputs.repo }}
+          INPUT_TASK: palette
+          INPUT_PROMPT_URL: https://raw.githubusercontent.com/developing-today/code/main/.github/actions/pm-dispatch-task/prompts/palette.md
+        run: |
+          set -euo pipefail
+          # Inlined pm-dispatch-start (#1367): launch a tracked
+          # OpenCode session via pm-dispatch (POST /v1/sessions).
+          if ! resolved_prompt="$(curl -fsS "$INPUT_PROMPT_URL")"; then
+            echo "::error::agents dispatch: failed to fetch prompt for task '$INPUT_TASK': $INPUT_PROMPT_URL" >&2
+            exit 1
+          fi
+          if [ -z "$resolved_prompt" ]; then
+            echo "::error::agents dispatch: prompt for task '$INPUT_TASK' is empty: $INPUT_PROMPT_URL" >&2
+            exit 1
+          fi
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::agents dispatch: ACTIONS_ID_TOKEN_REQUEST_URL / ACTIONS_ID_TOKEN_REQUEST_TOKEN are not set. The calling job must grant 'permissions: id-token: write' so an OIDC token can be minted." >&2
+            exit 1
+          fi
+          task_capitalized="${INPUT_TASK^}"
+          title="Scheduled ${task_capitalized} — ${INPUT_REPO}"
+          oidc_token="$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pm-dispatch" | jq -r '.value // empty')"
+          if [ -z "$oidc_token" ]; then
+            echo "::error::agents dispatch: failed to mint a GitHub Actions OIDC token (audience pm-dispatch)." >&2
+            exit 1
+          fi
+          payload="$(jq -n \
+            --arg repo "$INPUT_REPO" \
+            --arg title "$title" \
+            --arg prompt "$resolved_prompt" \
+            --argjson wait true \
+            '{repo: $repo, title: $title, prompt: $prompt, wait: $wait}')"
+          response="$(curl -sS -w $'\n%{http_code}' -X POST "https://dispatch.security.cab/v1/sessions" \
+            -H "Authorization: Bearer $oidc_token" \
+            -H "Content-Type: application/json" \
+            -d "$payload")"
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::agents dispatch: pm-dispatch POST /v1/sessions failed (HTTP $http_code):" >&2
+            echo "$body" >&2
+            exit 1
+          fi
+          echo "$body"
+          task_id="$(printf '%s' "$body" | jq -r '.task_id // empty')"
+          session_id="$(printf '%s' "$body" | jq -r '.session_id // empty')"
+          issue_number="$(printf '%s' "$body" | jq -r '.issue_number // empty')"
+          issue_url=""
+          if [ -n "$issue_number" ]; then
+            issue_url="https://github.com/${INPUT_REPO}/issues/${issue_number}"
+          fi
+          {
+            echo "task_id=$task_id"
+            echo "session_id=$session_id"
+            echo "issue_number=$issue_number"
+            echo "issue_url=$issue_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch suggestions
+        id: suggestions
+        if: steps.resolve.outputs.has_suggestions == 'true'
+        shell: bash
+        env:
+          INPUT_REPO: ${{ steps.resolve.outputs.repo }}
+          INPUT_TASK: suggestions
+          INPUT_PROMPT_URL: https://raw.githubusercontent.com/developing-today/code/main/.github/actions/pm-dispatch-task/prompts/suggestions.md
+        run: |
+          set -euo pipefail
+          # Inlined pm-dispatch-start (#1367): launch a tracked
+          # OpenCode session via pm-dispatch (POST /v1/sessions).
+          if ! resolved_prompt="$(curl -fsS "$INPUT_PROMPT_URL")"; then
+            echo "::error::agents dispatch: failed to fetch prompt for task '$INPUT_TASK': $INPUT_PROMPT_URL" >&2
+            exit 1
+          fi
+          if [ -z "$resolved_prompt" ]; then
+            echo "::error::agents dispatch: prompt for task '$INPUT_TASK' is empty: $INPUT_PROMPT_URL" >&2
+            exit 1
+          fi
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::agents dispatch: ACTIONS_ID_TOKEN_REQUEST_URL / ACTIONS_ID_TOKEN_REQUEST_TOKEN are not set. The calling job must grant 'permissions: id-token: write' so an OIDC token can be minted." >&2
+            exit 1
+          fi
+          task_capitalized="${INPUT_TASK^}"
+          title="Scheduled ${task_capitalized} — ${INPUT_REPO}"
+          oidc_token="$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pm-dispatch" | jq -r '.value // empty')"
+          if [ -z "$oidc_token" ]; then
+            echo "::error::agents dispatch: failed to mint a GitHub Actions OIDC token (audience pm-dispatch)." >&2
+            exit 1
+          fi
+          payload="$(jq -n \
+            --arg repo "$INPUT_REPO" \
+            --arg title "$title" \
+            --arg prompt "$resolved_prompt" \
+            --argjson wait true \
+            '{repo: $repo, title: $title, prompt: $prompt, wait: $wait}')"
+          response="$(curl -sS -w $'\n%{http_code}' -X POST "https://dispatch.security.cab/v1/sessions" \
+            -H "Authorization: Bearer $oidc_token" \
+            -H "Content-Type: application/json" \
+            -d "$payload")"
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::agents dispatch: pm-dispatch POST /v1/sessions failed (HTTP $http_code):" >&2
+            echo "$body" >&2
+            exit 1
+          fi
+          echo "$body"
+          task_id="$(printf '%s' "$body" | jq -r '.task_id // empty')"
+          session_id="$(printf '%s' "$body" | jq -r '.session_id // empty')"
+          issue_number="$(printf '%s' "$body" | jq -r '.issue_number // empty')"
+          issue_url=""
+          if [ -n "$issue_number" ]; then
+            issue_url="https://github.com/${INPUT_REPO}/issues/${issue_number}"
+          fi
+          {
+            echo "task_id=$task_id"
+            echo "session_id=$session_id"
+            echo "issue_number=$issue_number"
+            echo "issue_url=$issue_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize the dispatched tasks
+        if: always()
+        shell: bash
+        env:
+          RESOLVED_REPO: ${{ steps.resolve.outputs.repo }}
+          RESOLVED_TASKS: ${{ steps.resolve.outputs.tasks }}
+          BOLT_TASK_ID: ${{ steps.bolt.outputs.task_id }}
+          BOLT_SESSION_ID: ${{ steps.bolt.outputs.session_id }}
+          BOLT_ISSUE_NUMBER: ${{ steps.bolt.outputs.issue_number }}
+          BOLT_ISSUE_URL: ${{ steps.bolt.outputs.issue_url }}
+          PALETTE_TASK_ID: ${{ steps.palette.outputs.task_id }}
+          PALETTE_SESSION_ID: ${{ steps.palette.outputs.session_id }}
+          PALETTE_ISSUE_NUMBER: ${{ steps.palette.outputs.issue_number }}
+          PALETTE_ISSUE_URL: ${{ steps.palette.outputs.issue_url }}
+          SUGGESTIONS_TASK_ID: ${{ steps.suggestions.outputs.task_id }}
+          SUGGESTIONS_SESSION_ID: ${{ steps.suggestions.outputs.session_id }}
+          SUGGESTIONS_ISSUE_NUMBER: ${{ steps.suggestions.outputs.issue_number }}
+          SUGGESTIONS_ISSUE_URL: ${{ steps.suggestions.outputs.issue_url }}
+        run: |
+          set -euo pipefail
+          # A skipped task step leaves all of its outputs blank;
+          # they are reported blank here, exactly as passed in.
+          {
+            echo "## agents — ${RESOLVED_REPO}"
+            echo ""
+            echo "Resolved tasks: ${RESOLVED_TASKS}"
+            echo ""
+            echo "| Task | task_id | session_id | issue_number | issue_url |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "| bolt | ${BOLT_TASK_ID} | ${BOLT_SESSION_ID} | ${BOLT_ISSUE_NUMBER} | ${BOLT_ISSUE_URL} |"
+            echo "| palette | ${PALETTE_TASK_ID} | ${PALETTE_SESSION_ID} | ${PALETTE_ISSUE_NUMBER} | ${PALETTE_ISSUE_URL} |"
+            echo "| suggestions | ${SUGGESTIONS_TASK_ID} | ${SUGGESTIONS_SESSION_ID} | ${SUGGESTIONS_ISSUE_NUMBER} | ${SUGGESTIONS_ISSUE_URL} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "agents summary written for repo=${RESOLVED_REPO} tasks=${RESOLVED_TASKS}"
