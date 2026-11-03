@@ -140,28 +140,19 @@ rec {
     nixpkgs-terraform.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     flake-utils.url = "github:numtide/flake-utils";
     flake-utils.inputs.systems.follows = "systems";
-    # developing-today's OpenCode fork (v2, tracks upstream dev plus model
-    # routing, mcpx and serve handover). We own it: if it breaks, fix it there
-    # and re-pin here -- see .agents/skills/update-opencode. Its own nixpkgs is
-    # kept, not followed: the fork's node_modules hashes are computed against
-    # the bun in that nixpkgs, and a different bun can lay node_modules out
+    # developing-today's OpenChamber fork — this flake's ONLY
+    # developing-today input (#1384). OpenChamber's own opencode input
+    # (developing-today's OpenCode fork: v2, tracks upstream dev plus
+    # model routing, mcpx and serve handover) is the opencode this
+    # flake consumes, reached as inputs.openchamber.inputs.opencode;
+    # the fork's mcpx (origin: developing-today/code, pkgs/mcpx) and
+    # the mcpx daemon modules arrive through the same chain. We own
+    # them all: if one breaks, fix it in its home repo and re-pin
+    # here. The fork's own nixpkgs stays unfollowed (see flakeTidy
+    # below): its node_modules hashes are computed against the bun
+    # in that nixpkgs, and a different bun can lay node_modules out
     # differently and miss the fixed-output hash.
-    opencode.url = "github:developing-today/opencode";
-    # developing-today's OpenChamber fork, built against the opencode above.
-    openchamber = {
-      url = "github:developing-today/openchamber";
-      inputs.opencode.follows = "opencode";
-    };
-    # mcpx's single source: developing-today/code, pkgs/mcpx. Source-only
-    # (flake = false) so none of that repo's flake input graph lands in this
-    # lock; the derivation is the package.nix that lives beside the source
-    # there, called from mkPackages below. We own it: if it breaks, fix it
-    # there and re-pin here. The vendored copy this replaces was deleted in
-    # #468; the port audit is in that issue.
-    mcpx-src = {
-      url = "github:developing-today/code";
-      flake = false;
-    };
+    openchamber.url = "github:developing-today/openchamber";
     sidepulse-src = {
       url = "github:inteliwear/sidepulse/main";
       flake = false;
@@ -230,7 +221,7 @@ rec {
     # forks' own nixpkgs stay unfollowed: their node_modules fixed-output
     # hashes are computed with the bun in that nixpkgs.
     flakeTidy.exclude.follows = [
-      "opencode.nixpkgs"
+      "openchamber/opencode.nixpkgs"
       "openchamber.nixpkgs"
     ];
     eachSystem =
@@ -283,25 +274,19 @@ rec {
       _hostName: hostConfiguration: inputs.darwin.lib.darwinSystem hostConfiguration
     ) darwinSystemConfigurations;
 
-    # Reusable mcpx modules (#343): the option set — services.mcpx
-    # enable / package / settings / servers — lives in
-    # modules/mcpx/common.nix and is shared by every platform module;
-    # `package` defaults to this flake's own mcpx build and consumers
-    # can override it. darwinModules.mcpx is the remaining slice of
-    # #343: it lands only with a darwin evaluation to prove it, which
-    # the fleet's Linux build hosts cannot run.
-    nixosModules.mcpx =
-      { lib, pkgs, ... }:
-      {
-        imports = [ ./modules/mcpx/nixos.nix ];
-        services.mcpx.package = lib.mkDefault inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.mcpx;
-      };
-    homeManagerModules.mcpx =
-      { lib, pkgs, ... }:
-      {
-        imports = [ ./modules/mcpx/home-manager.nix ];
-        services.mcpx.package = lib.mkDefault inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.mcpx;
-      };
+    # The mcpx daemon modules (#343's option set, completed by the
+    # consolidation #1384): they originate in developing-today/code
+    # (pkgs/mcpx/modules), the opencode fork re-exports them with the
+    # package defaulted to its own mcpx build, and openchamber passes
+    # them through; this flake exposes the same outputs so consumers
+    # of this flake keep one import shape. darwinModules.mcpx — the
+    # slice #343 left remaining — now exists via the chain. This
+    # repo's own machine configs do not enable services.mcpx yet:
+    # configuration.nix still runs its hand-rolled agent, whose
+    # fixed-path pattern is what the darwin module encodes.
+    nixosModules.mcpx = inputs.openchamber.nixosModules.mcpx;
+    homeManagerModules.mcpx = inputs.openchamber.homeManagerModules.mcpx;
+    darwinModules.mcpx = inputs.openchamber.darwinModules.mcpx;
 
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
@@ -309,92 +294,13 @@ rec {
       let
         system = pkgs.stdenv.hostPlatform.system;
         bun-bin = pkgs.callPackage ./pkgs/bun-bin/package.nix { };
-        # mcpx is built from the pinned mcpx-src input (developing-today/code,
-        # pkgs/mcpx — the only copy; the vendored one was deleted in #468),
-        # using the package.nix that lives beside that source; adapt here,
-        # never by patching the source. Its takeover/upgrade/handoff code is
-        # Linux-only, not just its tests: the successor takes over systemd's
-        # MAINPID, and mcpclient/handoff.go reads /proc/<pid>/stat. Run on
-        # darwin with the SOCK_CLOEXEC test helper patched, all 12 skipped
-        # tests fail (7 on the missing /proc, 5 "takeover: EOF"; checked
-        # 2026-10-19 at mcpx-src 7274889). launchd cannot hand over its pid
-        # either, so this config never upgrades in place: a new mcpx
-        # restarts the agent (configuration.nix). Everything else runs.
-        mcpxRewriteCheckPhase =
-          {
-            phase,
-            pattern,
-            replacement,
-            purpose,
-          }:
-          let
-            rewritten = builtins.replaceStrings [ pattern ] [ replacement ] phase;
-          in
-          if rewritten == phase then
-            throw "mcpx ${purpose}: expected checkPhase line `${pattern}` was not found; update the mcpx checkPhase rewrite in flake.nix."
-          else
-            rewritten;
-        mcpx =
-          (pkgs.callPackage (inputs.mcpx-src + "/pkgs/mcpx/package.nix") { inherit bun-bin; }).overrideAttrs
-            (
-              old:
-              pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-                # The retention/reopen regression test uses a 400ms TTL and
-                # only a 200ms margin before reopening its SQLite store. Run
-                # test packages serially so concurrent package tests cannot
-                # starve that timing-sensitive check on CI; do not skip it.
-                # Keep this rewrite guarded because replaceStrings otherwise
-                # silently does nothing if mcpx changes its canonical command.
-                checkPhase = mcpxRewriteCheckPhase {
-                  phase = old.checkPhase;
-                  pattern = "go test -timeout 30m $pkgs";
-                  replacement = "go test -p 1 -timeout 30m $pkgs";
-                  purpose = "Linux test serialization";
-                };
-              }
-              // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-                # (The SOCK_CLOEXEC substituteInPlace patch that used to
-                # live here is gone: upstream fixed the test helper in
-                # developing-today/code#237 (PR #3288), and the pinned
-                # mcpx-src now carries the portable helper.)
-                # Darwin cannot run the Linux-only takeover/handoff tests.
-                # Keep the rewrite guarded so an upstream checkPhase change
-                # cannot silently drop the skip (developing-today/code#418).
-                checkPhase = mcpxRewriteCheckPhase {
-                  phase = old.checkPhase;
-                  pattern = "go test -timeout 30m $pkgs";
-                  replacement = "go test -timeout 30m -skip='${mcpxDarwinSkip}' $pkgs";
-                  purpose = "Darwin takeover-test skip";
-                };
-              }
-            );
-        mcpxDarwinSkip = "^(${
-          pkgs.lib.concatStringsSep "|" [
-            "TestACallInFlightAtATakeoverIsAnsweredAndItsConnectionMovesOn"
-            "TestAnIdleKeepAliveConnectionSurvivesATakeover"
-            "TestClientHandoffCommitsOnlyWhenActivated"
-            "TestClientLeaseSurvivesDaemonTakeover"
-            "TestDetachedChildKeepsItsPipesAndAdoptionResumesThem"
-            "TestDetachRefusesWhileACallIsInFlight"
-            "TestHandoffDoesNotSplitAFrameAcrossTheTwoProcesses"
-            "TestKeepAliveCallersLoseNoCallsAcrossARealTakeover"
-            "TestTakeoverKeepsTheChildAndTheListener"
-            "TestTakeoverLosesNoCallsWhileAClientKeepsCalling"
-            "TestTakeoverRestartsAChangedServerAndKeepsTheRest"
-            "TestUpgradeKeepsTheChildAndHandsMainPIDToTheSuccessor"
-            "TestACallInFlightAtTheHandoverIsAnsweredByTheOldDaemon"
-            "TestAClientLeaseSurvivesADaemonTakeover"
-            "TestAnIdleConnectionSurvivesATakeoverInProcess"
-            "TestCallsIssuedDuringATakeoverNeverFail"
-            "TestHandoffRecordsTheIdentityAPoolWasMadeWith"
-            "TestKeepAliveCallersLoseNoCallsAcrossATakeover"
-            "TestRegistryHandoffKeepsTheChildAcrossTheSuccessor"
-            "TestRegistryHandoffThatIsNotCommittedRestoresTheChild"
-          ]
-        })$";
-        # The fork's own build, with this repo's mcpx on its PATH so the CLI it
-        # talks to is the same build as the launchd daemon.
-        opencode-unwrapped = inputs.opencode.packages.${system}.opencode.override { inherit mcpx; };
+        # The fork's build, as pinned through the openchamber input,
+        # unmodified: it already bundles the fork's mcpx — the same
+        # build the daemon modules default to — so the CLI talks to
+        # the same mcpx the daemon runs. The coherence this repo used
+        # to maintain with a local override over a private mcpx build
+        # is now true by construction (#1384).
+        opencode-unwrapped = inputs.openchamber.inputs.opencode.packages.${system}.opencode;
         # Two things the fork cannot know, set by an outer shell wrapper (only a
         # shell wrapper can expand $HOME at exec time; the fork wraps with
         # makeBinaryWrapper, whose C wrapper rejects --run):
@@ -435,15 +341,18 @@ rec {
       ({
         inherit
           bun-bin
-          mcpx
           opencode
           opencode-unwrapped
           ;
 
-        # OpenChamber's server, running the wrapped opencode above. Its own
-        # opencode input already follows ours (flake.nix inputs); the override
-        # swaps in the wrapper so the database and scratch pins hold for the
-        # OpenCode it starts too.
+        # Not built here: the fork's mcpx, re-exposed so this flake's
+        # package surface (systemPackages installs it) keeps its
+        # shape while the build itself lives with the fork (#1384).
+        mcpx = inputs.openchamber.inputs.opencode.packages.${system}.mcpx;
+
+        # OpenChamber's server, running the wrapped opencode above:
+        # the override swaps in the wrapper so the database and
+        # scratch pins hold for the OpenCode it starts too.
         openchamber = inputs.openchamber.packages.${system}.openchamber.override { inherit opencode; };
 
         brew-repair = import ./pkgs/brew-repair {
@@ -1208,30 +1117,6 @@ rec {
               fi
               touch $out
             '';
-        # developing-today/code#418: the darwin mcpx package rewrites the
-        # canonical checkPhase line from developing-today/code's
-        # pkgs/mcpx/package.nix to add the takeover/handoff -skip list.
-        # Force the aarch64-darwin package's checkPhase here, on every
-        # system: the override now throws when its replaceStrings pattern
-        # no longer matches, and this check additionally asserts the
-        # rewritten phase really carries the skip, so an mcpx-src pin bump
-        # (flake.lock) or a flake.nix edit that breaks the coupling fails
-        # `nix flake check` on Linux instead of a Mac build later.
-        mcpx-darwin-skip =
-          let
-            darwinCheckPhase = packages.aarch64-darwin.mcpx.checkPhase;
-          in
-          pkgs.runCommandLocal "mcpx-darwin-skip-check" { inherit darwinCheckPhase; } ''
-            case "$darwinCheckPhase" in
-            *"-skip="*) ;;
-            *)
-              echo "darwin mcpx checkPhase lost its -skip rewrite:" >&2
-              printf '%s\n' "$darwinCheckPhase" >&2
-              exit 1
-              ;;
-            esac
-            touch $out
-          '';
       }
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
         sidepulse = (mkPackages pkgs).sidepulse;
