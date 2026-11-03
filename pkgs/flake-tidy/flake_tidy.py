@@ -500,13 +500,39 @@ def is_excluded_full(
 # ---------------------------------------------------------------------------
 
 
+# Format-defined string leaves inside a node's 'locked'/'original'
+# objects (#1248): the flake lock format defines these leaves as
+# strings, and downstream consumers (URL rebuilding, source keys)
+# assume it. Other keys - numeric leaves such as
+# 'lastModified'/'revCount' and any unknown extra field - are not
+# type-checked here (#1247 rule 2: validate consume-depth, never
+# freeze the format).
+LOCK_STRING_LEAVES = frozenset(
+    {
+        "type",
+        "owner",
+        "repo",
+        "rev",
+        "ref",
+        "dir",
+        "url",
+        "narHash",
+        "id",
+        "path",
+    }
+)
+
+
 def load_lock(flake_dir: str) -> dict:
-    """Load and parse flake.lock, validating its shape (#1234, #1237, #1243).
+    """Load and parse flake.lock, validating its shape (#1234, #1237, #1243, #1248).
 
     A malformed lock is a usage error, not a crash: invalid JSON, a
     non-object top level, a missing/non-object 'nodes', a non-object
     node entry or 'inputs'/'locked'/'original' sub-value, an 'inputs'
-    value that is not a string or a list of strings, or a
+    value that is not a string or a list of strings, a non-string
+    value of a format-defined string leaf inside 'locked'/'original'
+    (see LOCK_STRING_LEAVES), a non-boolean node 'flake', a
+    non-integer top-level 'version' (booleans rejected), or a
     'root' naming a node absent from 'nodes' raises LockLoadError
     (mapped to a clean exit-2 error by main()) instead of surfacing as
     a KeyError/TypeError/JSONDecodeError traceback later at the first
@@ -536,6 +562,14 @@ def load_lock(flake_dir: str) -> dict:
         raise LockLoadError(
             f"flake.lock at {path} has invalid 'nodes': must be an object, "
             f"got {type(nodes).__name__}"
+        )
+    version = lock.get("version")
+    if version is not None and (
+        isinstance(version, bool) or not isinstance(version, int)
+    ):
+        raise LockLoadError(
+            f"flake.lock at {path} has invalid 'version': must be an "
+            f"integer, got {type(version).__name__}"
         )
     root = lock.get("root")
     if root is not None and not isinstance(root, str):
@@ -568,6 +602,20 @@ def load_lock(flake_dir: str) -> dict:
                 f"in node '{node_name}': must be a string or a list of "
                 f"strings, got {type(ref).__name__}"
             )
+        if "flake" in node and not isinstance(node["flake"], bool):
+            raise LockLoadError(
+                f"flake.lock at {path} has invalid 'flake' in node "
+                f"'{node_name}': must be a boolean, "
+                f"got {type(node['flake']).__name__}"
+            )
+        for section in ("locked", "original"):
+            for leaf, value in node.get(section, {}).items():
+                if leaf in LOCK_STRING_LEAVES and not isinstance(value, str):
+                    raise LockLoadError(
+                        f"flake.lock at {path} has invalid '{leaf}' in "
+                        f"'{section}' of node '{node_name}': must be a "
+                        f"string, got {type(value).__name__}"
+                    )
     if root is not None and root not in nodes:
         raise LockLoadError(
             f"flake.lock at {path} has invalid 'root': node '{root}' "
