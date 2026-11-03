@@ -175,6 +175,65 @@ else
   ok_if_clean "$before" "--auto-vacuum bakes INCREMENTAL (2) into the swapped DB, counts preserved"
 fi
 
+# --- Failed row-count queries abort before the swap (#1386). ----------
+# The verify loop used to turn a failed COUNT(*) on the original into
+# "skip" and continue silently: if all four counts failed, zero row
+# counts were verified and the swap proceeded at exit 0 (a failed count
+# on the compacted copy already died, via the mismatch check). A shim
+# sqlite3 that fails only COUNT(*) queries against one side's
+# read-only URI pins the fix: either side failing must abort before
+# the swap, naming the table and the side, with the original untouched.
+real_sqlite3="$(command -v sqlite3)"
+mk_count_fail_shim() { # $1 = shim dir, $2 = URI fragment whose COUNTs fail
+  mkdir -p "$1"
+  cat >"$1/sqlite3" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  case "\$a" in
+    *"SELECT COUNT(*) FROM"*)
+      for b in "\$@"; do
+        case "\$b" in
+          *"$2"*) echo 'Error: simulated count failure' >&2; exit 1 ;;
+        esac
+      done
+      ;;
+  esac
+done
+exec $real_sqlite3 "\$@"
+EOF
+  chmod +x "$1/sqlite3"
+}
+
+before=$failures
+db="$fx/countfail-orig.db"; mk_fixture "$db"
+cp "$db" "$fx/countfail-orig.before"
+shimdir="$HOME/countfail-orig-shim"
+mk_count_fail_shim "$shimdir" "$(basename "$db")?mode=ro"
+out="$(PATH="$shimdir:$PATH" bash "$VACUUM" --db "$db" -y 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "original-side count failure exited 0, expected abort before swap: $out"
+case "$out" in
+  *"row count query failed for session on the original"*) ;;
+  *) fail "original-side count failure did not name table and side: $out" ;;
+esac
+cmp -s "$db" "$fx/countfail-orig.before" || fail "original-side count failure changed the DB (swap happened?)"
+[ ! -e "${db}.old" ] || fail "original-side count failure created ${db}.old (swap happened)"
+ok_if_clean "$before" "failed COUNT(*) on the original aborts before the swap, naming table and side, original untouched"
+
+before=$failures
+db="$fx/countfail-compact.db"; mk_fixture "$db"
+cp "$db" "$fx/countfail-compact.before"
+shimdir="$HOME/countfail-compact-shim"
+mk_count_fail_shim "$shimdir" ".compact?mode=ro"
+out="$(PATH="$shimdir:$PATH" bash "$VACUUM" --db "$db" -y 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "compacted-side count failure exited 0, expected abort before swap: $out"
+case "$out" in
+  *"row count query failed for session on the compacted copy"*) ;;
+  *) fail "compacted-side count failure did not name table and side: $out" ;;
+esac
+cmp -s "$db" "$fx/countfail-compact.before" || fail "compacted-side count failure changed the DB (swap happened?)"
+[ ! -e "${db}.old" ] || fail "compacted-side count failure created ${db}.old (swap happened)"
+ok_if_clean "$before" "failed COUNT(*) on the compacted copy aborts before the swap, naming table and side, original untouched"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

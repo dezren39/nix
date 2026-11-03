@@ -378,7 +378,8 @@ note "integrity_check: $new_integrity"
 for t in session message part event; do
   old_n="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo skip)"
   new_n="$(sqlite3 -readonly "file:$(uri_escape_path "$COMPACT")?mode=ro" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo skip)"
-  [ "$old_n" = skip ] && continue
+  [ "$old_n" = skip ] && die "row count query failed for $t on the original database; original untouched at $DB"
+  [ "$new_n" = skip ] && die "row count query failed for $t on the compacted copy; original untouched at $DB"
   note "$(printf '%-8s %12s -> %12s' "$t" "$old_n" "$new_n")"
   [ "$old_n" = "$new_n" ] || die "row count mismatch in $t; original untouched at $DB"
 done
