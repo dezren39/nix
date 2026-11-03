@@ -9,6 +9,12 @@
   Step 3 (re-homing the backlog, `developing-today/code#309`) and step 6
   (closing the mcpx source issues here) remain open follow-ups, as does the
   aarch64-darwin build verification, which needs the Mac.
+- Update (2026-11-03, #1388): the `mcpx-src` consumption mechanism
+  described in this status was itself retired - this flake collapsed to
+  the single openchamber input; mcpx (and its daemon modules) now arrive
+  through the openchamber -> opencode chain, and the fork's opencode
+  bundles the fork's mcpx. The steps below stand as the record of the
+  extraction as planned and executed.
 - Roadmap item: [mcpx leaves this repo](../../ROADMAP.md#mcpx-moves-to-developing-todaycode)
 - Design: none needed, the decision is made
 - Issues: `developing-today/code#308` (how to consume), `developing-today/code#309` (move the backlog), `developing-today/code#237` (takeover tests on darwin)
