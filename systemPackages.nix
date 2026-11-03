@@ -207,6 +207,24 @@ in
           exec github-mcp-server stdio "$@"
         '';
       })
+      # Plannotator's only distribution channel is its upstream install
+      # script; #1433 took the activation-time curl-pipe-to-bash out of
+      # homeUser.nix. This explicit setup/update command is the
+      # deliberate, user-invoked replacement: nothing runs at switch
+      # time, and installer failures surface (writeShellApplication
+      # runs with errexit/nounset/pipefail and no output suppression).
+      (pkgs.writeShellApplication {
+        name = "plannotator-setup";
+        runtimeInputs = [
+          pkgs.curl
+          pkgs.bash
+        ];
+        text = ''
+          echo "plannotator-setup: installing/updating Plannotator via https://plannotator.ai/install.sh ..." >&2
+          curl -fsSL https://plannotator.ai/install.sh | bash
+          echo "plannotator-setup: installer finished" >&2
+        '';
+      })
       inputs.self.packages.${system}.opencode-share
       inputs.self.packages.${system}.sidepulse
       inputs.self.packages.${system}.sidepulse-setup
@@ -220,7 +238,11 @@ in
       # php81
       # platformio # removed 2026-09-15: reclaiming disk
       playwright-driver.browsers
-      # playwright-test  # depends on playwright-driver
+      # The pinned Playwright CLI (#1433: replaces the activation-time
+      # global npm install in homeUser.nix). The version
+      # is fixed by nixpkgs, and its browsers are
+      # playwright-driver.browsers above.
+      playwright-test
       pngquant
       protobuf
       protoc-gen-go

@@ -132,14 +132,21 @@ lib.recursiveUpdate {
       mcpClients = lib.hm.dag.entryAfter [ "mcpxConfig" ] ''
         run ${pkgs.python3}/bin/python3 ${./mcp-clients.py} || true
       '';
-      installPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        run ${pkgs.nodejs}/bin/npm install -g playwright@latest 2>/dev/null || true
-      '';
       # installGhCopilot: gh copilot is now built into gh (>=2.65) and executes
       # the native `copilot` binary from PATH (managed via copilot-cli cask).
-      installPlannotator = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        run ${pkgs.curl}/bin/curl -fsSL https://plannotator.ai/install.sh | run ${pkgs.bash}/bin/bash 2>/dev/null || true
-      '';
+      #
+      # No installPlaywright / installPlannotator activation entries
+      # (#1433): activation used to run an npm global install of Playwright's
+      # mutable latest tag and the Plannotator install script piped
+      # straight to bash on every
+      # switch -- mutable versions, a network dependency for routine
+      # switches, remote shell code in the user account, and failures
+      # swallowed by `2>/dev/null || true`. Playwright now comes from
+      # the pinned nixpkgs playwright-test in systemPackages.nix (with
+      # playwright-driver.browsers, already installed there), and
+      # Plannotator is installed or updated only by explicitly running
+      # `plannotator-setup` (also systemPackages.nix), which surfaces
+      # installer failures instead of suppressing them.
       setupSidePulse = mkSidePulseActivation { providers = sidepulseProviders; };
       installAltTab = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         app="$HOME/Applications/AltTab.app"
