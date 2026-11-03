@@ -432,10 +432,17 @@ ensure_scheduler() {
   # launchd *Agents* need a GUI session, which root does not have, so installing
   # the scheduler as root would create plists that never fire. Config checks below
   # still apply -- root reads /etc/gitconfig and /var/root/.gitconfig.
+  local install_failed=0
   if [ "$(id -u)" -eq 0 ]; then
     echo "  running as root: skipping scheduler install (launchd agents need a GUI session)"
   else
-    git maintenance start 2>/dev/null                                    # install/refresh launchd timers
+    # A failed install must not be swallowed (#1402): let git's own error
+    # reach stderr, name the step, and report failure to the caller the
+    # way the #1327 registration block does, so the exit code reflects it.
+    if ! git maintenance start; then                                  # install/refresh launchd timers
+      echo "git-maintain-repos: scheduler install failed: git maintenance start" >&2
+      install_failed=1
+    fi
   fi
   local n; n=$(git config --get-all maintenance.repo 2>/dev/null | wc -l | tr -d ' ')
   local agents; agents=$(find "$HOME/Library/LaunchAgents" -name 'org.git-scm.git.*.plist' 2>/dev/null | wc -l | tr -d ' ')
@@ -443,6 +450,7 @@ ensure_scheduler() {
   local stray
   stray=$(git config --file "$HOME/.gitconfig" --list 2>/dev/null | grep -vc '^maintenance\.repo=' || true)
   [ "${stray:-0}" -gt 0 ] && echo "  NOTE ~/.gitconfig defines $stray key(s) that override the nix config"
+  [ "$install_failed" -eq 0 ] || return 1
   return 0
 }
 
@@ -455,7 +463,7 @@ fi
 if [ "$SCOPE" = "system" ]; then
   echo "git-maintain-repos: system-wide setup"
   ensure_scheduler
-  exit 0
+  exit $?
 fi
 
 # --auto and --path are alternative ways to choose a target: --auto means "the
@@ -592,10 +600,11 @@ if [ "$REGISTER" = "1" ]; then
 fi
 
 # --walk deliberately skips the system half.
+scheduler_failures=0
 if [ "$REGISTER" = "1" ] && [ "$SCOPE" != "walk" ]; then
   echo
   echo "git-maintain-repos: scheduler"
-  ensure_scheduler
+  ensure_scheduler || scheduler_failures=1
 fi
 
 if [ "$maint_failures" -gt 0 ] && [ "${#maint_failed_repos[@]}" -gt 0 ]; then
@@ -605,3 +614,4 @@ fi
 
 [ "$register_failures" -eq 0 ] || exit 1
 [ "$maint_failures" -eq 0 ] || exit 1
+[ "$scheduler_failures" -eq 0 ] || exit 1
