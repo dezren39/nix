@@ -966,6 +966,29 @@ rec {
               bash ./opencode-tmp-guard.test.sh
               touch $out
             '';
+        # #659: opencode-prune-report.test.sh extracts the real report
+        # script from opencode-prune-report.nix and drives it against stub
+        # pruners -- both invoked, clean.sh gets --dry-run and
+        # --no-git-maintenance, nothing ever gets --apply or
+        # --prune-unknown-scratch, and one pruner failing does not hide the
+        # other's report.
+        opencode-prune-report-tests =
+          pkgs.runCommandLocal "opencode-prune-report-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-prune-report.nix $src/opencode-prune-report.test.sh ./
+              chmod u+w ./opencode-prune-report.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-prune-report.test.sh
+              touch $out
+            '';
         # #945: install-vscode-patch-agent.test.sh drives the real
         # installer with a scratch HOME and a stub launchctl -- a missing
         # LaunchAgents dir, a failing launchctl load, and a blocked dir
