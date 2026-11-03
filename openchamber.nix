@@ -212,6 +212,10 @@ in
           /bin/sleep 0.1
           waited=$((waited + 1))
         done
+        if [ ! -r "$pw" ]; then
+          echo "openchamberDeploy: UI password file $pw is not readable after $waited polls; refusing to deploy" >&2
+          exit 1
+        fi
         # Folds the password's content into the deploy key so a password
         # rotation (secrets/openchamber.yaml changing, with nothing else
         # about OpenChamber touched) gets the same full restart as a new
