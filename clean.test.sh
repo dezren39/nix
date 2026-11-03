@@ -653,5 +653,52 @@ probe_accepted --path "$VALID" --depth 08 --docker-age 08 --only-unknown-scratch
 # ─── Shared operation-outcome conformance matrix (#1339) ───────────────
 outcome_probe_matrix
 
+
+
+# ─── brew_cleanup runs cleanup exactly once, and warns on failure (#1422) ───
+# brew_cleanup used to run `brew cleanup --prune=all` twice: once warned,
+# then again with --quiet, stderr discarded and failure swallowed
+# (2>/dev/null || true), so a broken second run was invisible and every
+# clean paid for the sweep twice. Pin the contract with a stub brew:
+# extract the real brew_cleanup from clean.sh at test time, point
+# real_brew at the stub, and count `cleanup` invocations.
+BC_DIR="$TMP_ROOT/brew-cleanup"
+mkdir -p "$BC_DIR"
+export BREW_STUB_LOG="$BC_DIR/invocations.log"
+export BREW_STUB_FAIL=0
+cat > "$BC_DIR/brew" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$BREW_STUB_LOG"
+[ "${BREW_STUB_FAIL:-0}" = "1" ] && exit 1
+exit 0
+STUB
+chmod +x "$BC_DIR/brew"
+sed -n '/^brew_cleanup() {/,/^}/p' "$SCRIPT" > "$BC_DIR/brew_cleanup.sh"
+[ -s "$BC_DIR/brew_cleanup.sh" ] || fail "could not extract brew_cleanup from clean.sh"
+# shellcheck disable=SC1091
+. "$BC_DIR/brew_cleanup.sh"
+real_brew() { printf '%s' "$BC_DIR/brew"; }
+warn() { printf 'WARN: %s\n' "$*" >&2; }
+info() { :; }
+: > "$BREW_STUB_LOG"
+BC_ERR="$(brew_cleanup 2>&1 >/dev/null)"
+BC_CALLS="$(grep -c '^cleanup ' "$BREW_STUB_LOG")"
+if [ "$BC_CALLS" -eq 1 ] && [ -z "$BC_ERR" ]; then
+  echo "ok: brew_cleanup runs brew cleanup exactly once"
+else
+  [ "$BC_CALLS" -eq 1 ] || fail "brew_cleanup ran brew cleanup $BC_CALLS times (want exactly 1)"
+  [ -z "$BC_ERR" ] || fail "successful brew_cleanup warned unexpectedly: $BC_ERR"
+fi
+BREW_STUB_FAIL=1
+: > "$BREW_STUB_LOG"
+BC_ERR="$(brew_cleanup 2>&1 >/dev/null)"
+BC_CALLS="$(grep -c '^cleanup ' "$BREW_STUB_LOG")"
+[ "$BC_CALLS" -eq 1 ] || fail "failing brew_cleanup ran brew cleanup $BC_CALLS times (want exactly 1)"
+case "$BC_ERR" in
+  *"brew cleanup failed"*) echo "ok: brew_cleanup failure surfaces a warning" ;;
+  *) fail "brew_cleanup failure was swallowed (stderr: $BC_ERR)" ;;
+esac
+BREW_STUB_FAIL=0
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all clean.sh flag-shaped-value checks passed"
