@@ -319,6 +319,62 @@ for pair in "--dry-run --apply" "--apply --dry-run"; do
 done
 ok "--apply with --dry-run rejected as a conflict in either order, tree untouched"
 
+# --- loose ad-hoc DB copies beside the database (#659 follow-up) ----------
+# `cp opencode.db opencode.db.bak-<tag>` is outside the timestamp-dir sweep.
+# Pin: only opencode.db.bak-* regular files are candidates, retention is the
+# newest --keep by mtime, the database itself and any other .bak name are
+# never listed, --max-age-days also applies, and dry run deletes nothing.
+LOOSE="$WORK/loose"; rm -rf "$LOOSE"; mkdir -p "$LOOSE"
+echo db > "$LOOSE/opencode.db"
+for n in a b c; do echo copy > "$LOOSE/opencode.db.bak-$n"; done
+echo other > "$LOOSE/other.bak-a"
+echo dir > "$LOOSE/opencode.db.bak-dir-marker"; rm -f "$LOOSE/opencode.db.bak-dir-marker"
+mkdir -p "$LOOSE/opencode.db.bak-as-directory"
+touch -t 202601010000 "$LOOSE/opencode.db.bak-a"
+touch -t 202602010000 "$LOOSE/opencode.db.bak-b"
+touch -t 202603010000 "$LOOSE/opencode.db.bak-c"
+
+out="$(bash "$PRUNE" --dir "$WORK/no-such-dir" --db-dir "$LOOSE" --keep 2 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "loose dry run exited $rc: $out"
+printf '%s' "$out" | grep -q "would delete loose: $LOOSE/opencode.db.bak-a\$" \
+  || fail "loose dry run did not list the oldest copy: $out"
+printf '%s' "$out" | grep -q "opencode.db.bak-b" && fail "loose dry run listed the second-newest copy: $out"
+printf '%s' "$out" | grep -q "would delete loose: $LOOSE/opencode\.db\$" && fail "loose dry run listed the database itself: $out"
+printf '%s' "$out" | grep -q "other.bak-a" && fail "loose dry run listed an unrelated .bak name: $out"
+printf '%s' "$out" | grep -q "opencode.db.bak-as-directory" && fail "loose dry run listed a directory: $out"
+[ -f "$LOOSE/opencode.db.bak-a" ] || fail "loose dry run deleted a copy"
+ok "loose dry run lists only the beyond-keep opencode.db.bak-* files, deletes nothing"
+
+out="$(bash "$PRUNE" --dir "$WORK/no-such-dir" --db-dir "$LOOSE" --keep 2 --apply 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "loose apply exited $rc: $out"
+[ -f "$LOOSE/opencode.db.bak-b" ] && [ -f "$LOOSE/opencode.db.bak-c" ] \
+  || fail "loose apply deleted a copy inside the keep window"
+[ -f "$LOOSE/opencode.db.bak-a" ] && fail "loose apply left the beyond-keep copy"
+[ -f "$LOOSE/opencode.db" ] || fail "loose apply deleted the database"
+[ -f "$LOOSE/other.bak-a" ] || fail "loose apply deleted an unrelated .bak name"
+[ -d "$LOOSE/opencode.db.bak-as-directory" ] || fail "loose apply removed a directory"
+ok "loose apply deletes exactly the beyond-keep copies and nothing else"
+
+# --max-age-days applies to loose copies too: a copy inside the keep
+# window is kept when recent, and skipped when older than the limit.
+out="$(bash "$PRUNE" --dir "$WORK/no-such-dir" --db-dir "$LOOSE" --keep 1 --max-age-days 30 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "loose --max-age-days exited $rc: $out"
+printf '%s' "$out" | grep -q "would delete loose: $LOOSE/opencode.db.bak-b\$" \
+  || fail "loose --max-age-days did not list the old beyond-keep copy: $out"
+# --db-dir is a repeatable-flag guard like the others.
+out="$(bash "$PRUNE" --dir "$WORK/no-such-dir" --db-dir "$LOOSE" --db-dir "$LOOSE" 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] || fail "repeated --db-dir exited $rc, expected 2: $out"
+printf '%s' "$out" | grep -q -- "--db-dir may be given only once" \
+  || fail "repeated --db-dir rejection does not name the only-once rule: $out"
+ok "loose copies respect --max-age-days and --db-dir rejects repeats"
+
+# Without --db-dir nothing outside the backup dir is touched: the real
+# database directory is never swept by an existing invocation.
+out="$(bash "$PRUNE" --dir "$WORK/no-such-dir" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "no-option run exited $rc: $out"
+printf '%s' "$out" | grep -q "loose" && fail "loose sweep ran without --db-dir: $out"
+ok "loose sweep is opt-in; --dir-only invocations are unchanged"
+
 if [ "$failures" -gt 0 ]; then
   echo "opencode-db-backup-prune.test: $failures failure(s)" >&2
   exit 1

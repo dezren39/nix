@@ -19,7 +19,7 @@
 # Deletion happens only with --apply.
 #
 # Run: ./opencode-db-backup-prune.sh [--dir DIR] [--keep N]
-#        [--max-age-days D] [--apply]
+#        [--max-age-days D] [--db-dir DIR] [--apply]
 # It is run by the flake check `opencode-db-backup-prune-tests`
 # (via opencode-db-backup-prune.test.sh) and by the just recipe
 # `opencode-db-backup-prune`.
@@ -48,6 +48,13 @@ KEEP_SET=0
 MAX_AGE_DAYS_SET=0
 APPLY_SET=0
 DRY_RUN_SET=0
+# Loose ad-hoc copies written beside the database itself (opencode.db.bak-*),
+# as opposed to the timestamp-named directories `just opencode-db-backup`
+# writes into DIR. Off unless --db-dir names the directory to sweep: the
+# default is opt-in so an existing `--dir`-only invocation never starts
+# touching a second, unrelated tree.
+DB_DIR=""
+DB_DIR_SET=0
 
 die() { echo "opencode-db-backup-prune: $*" >&2; exit 2; }
 
@@ -61,6 +68,7 @@ while [ $# -gt 0 ]; do
     --dir) arg_require_value "$1" "${2:-}"; arg_once "$1" DIR_SET; DIR="$2"; DIR_SET=1; shift 2 ;;
     --keep) arg_require_value "$1" "${2:-}"; arg_once "$1" KEEP_SET; KEEP="$2"; KEEP_SET=1; shift 2 ;;
     --max-age-days) arg_require_value "$1" "${2:-}"; arg_once "$1" MAX_AGE_DAYS_SET; MAX_AGE_DAYS="$2"; MAX_AGE_DAYS_SET=1; shift 2 ;;
+    --db-dir) arg_require_value "$1" "${2:-}"; arg_once "$1" DB_DIR_SET; DB_DIR="$2"; DB_DIR_SET=1; shift 2 ;;
     --apply) arg_conflict --apply --dry-run "$DRY_RUN_SET"; APPLY=1; APPLY_SET=1; shift ;;
     --dry-run) arg_conflict --apply --dry-run "$APPLY_SET"; APPLY=0; DRY_RUN_SET=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -76,6 +84,87 @@ done
 arg_decimal KEEP --keep "$KEEP" positive
 if [ -n "$MAX_AGE_DAYS" ]; then
   arg_decimal MAX_AGE_DAYS --max-age-days "$MAX_AGE_DAYS" non-negative
+fi
+
+# Portable own-mtime, in seconds (#1068 pattern): GNU stat first, BSD stat
+# second. An unreadable mtime yields "", which drops the file from the loose
+# candidate set below rather than silently making it the newest.
+file_mtime_epoch() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+}
+
+# Loose ad-hoc copies beside the database (#659 follow-up). `cp opencode.db
+# opencode.db.bak-<tag>` is the cheapest thing anyone reaches for before a
+# risky change, and no pruner walked those files: the directory sweep below
+# only sees timestamp-named dirs under DIR. One such copy was 20.4 GB on
+# 2026-11-03, a fifth of the whole ~/.local/share/opencode tree.
+#
+# Candidate set is exact: regular files whose name starts with
+# opencode.db.bak-. Nothing else in the directory is counted, listed or
+# deleted, the same policy the directory sweep states in the header.
+# Retention is by own mtime, newest first, and --keep is shared with the
+# directory sweep: one number for "how many copies of the database to keep".
+#
+# Opt-in via --db-dir so an existing `--dir`-only invocation never starts
+# touching a second tree; the scheduled dry-run recipe passes it.
+if [ "$DB_DIR_SET" -eq 1 ]; then
+  if { [ ! -e "$DB_DIR" ] && [ ! -L "$DB_DIR" ]; }; then
+    echo "opencode-db-backup-prune: no database dir at $DB_DIR — no loose backups to prune"
+  elif [ ! -d "$DB_DIR" ]; then
+    die "database path is not a directory: $DB_DIR"
+  elif [ ! -r "$DB_DIR" ] || [ ! -x "$DB_DIR" ] || ! ls -A "$DB_DIR" >/dev/null 2>&1; then
+    die "cannot enumerate database dir: $DB_DIR"
+  else
+    loose=()
+    while IFS=$'\t' read -r mtime path; do
+      [ -n "${path:-}" ] || continue
+      [ -n "$mtime" ] || continue
+      loose+=("$path")
+    done < <(
+      for entry in "$DB_DIR"/opencode.db.bak-*; do
+        [ -f "$entry" ] || continue
+        [ -L "$entry" ] && continue
+        printf '%s\t%s\n' "$(file_mtime_epoch "$entry")" "$entry"
+      done | sort -rn
+    )
+    loose_total=${#loose[@]}
+    if [ "$loose_total" -le "$KEEP" ]; then
+      echo "opencode-db-backup-prune: $loose_total loose backup(s) in $DB_DIR, keep=$KEEP — nothing to prune"
+    else
+      loose_now="$(date +%s)"
+      loose_listed=0
+      loose_failed=0
+      for ((i = KEEP; i < loose_total; i++)); do
+        path="${loose[$i]}"
+        if [ -n "$MAX_AGE_DAYS" ]; then
+          mtime="$(file_mtime_epoch "$path")"
+          [ -n "$mtime" ] || continue
+          [ $(( (loose_now - mtime) / 86400 )) -gt "$MAX_AGE_DAYS" ] || continue
+        fi
+        if [ "$APPLY" -eq 1 ]; then
+          if rm -f -- "$path"; then
+            loose_listed=$((loose_listed + 1))
+            echo "deleted loose: $path"
+          else
+            loose_failed=$((loose_failed + 1))
+            echo "opencode-db-backup-prune: failed to delete loose: $path" >&2
+          fi
+        else
+          loose_listed=$((loose_listed + 1))
+          echo "would delete loose: $path"
+        fi
+      done
+      if [ "$APPLY" -eq 1 ]; then
+        echo "opencode-db-backup-prune: deleted $loose_listed of $loose_total loose backup(s) in $DB_DIR (kept newest $KEEP)"
+      else
+        echo "opencode-db-backup-prune: dry run — $loose_listed of $loose_total loose backup(s) in $DB_DIR would be deleted (kept newest $KEEP)"
+      fi
+      if [ "$loose_failed" -gt 0 ]; then
+        echo "opencode-db-backup-prune: $loose_failed loose deletion(s) failed" >&2
+        exit 1
+      fi
+    fi
+  fi
 fi
 
 if [ -e "$DIR" ] || [ -L "$DIR" ]; then
