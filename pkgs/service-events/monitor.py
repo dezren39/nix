@@ -71,17 +71,31 @@ ROTATE_KEEP = 3
 
 
 def run(argv):
+    """Stdout of argv, or None if the sampler failed.
+
+    #1380: a sampler that fails to run (missing binary), times out, or
+    exits non-zero must not look like a successful empty sample. The
+    old code returned out.stdout unchecked and '' on exception, so a
+    failed launchctl/ps/lsof sample read as "everything is gone" and
+    tick() fabricated service.exit/process.exit/conn.drop/conn.close
+    events for still-running services.
+    """
     try:
         out = subprocess.run(argv, capture_output=True, text=True, timeout=20)
-        return out.stdout
     except (OSError, subprocess.SubprocessError):
-        return ""
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout
 
 
 def launchd_jobs():
-    """Label -> (pid or None, last exit status) for the agents watched."""
+    """Label -> (pid or None, last exit status), or None if sampling failed."""
+    out = run(["launchctl", "list"])
+    if out is None:
+        return None
     jobs = {}
-    for line in run(["launchctl", "list"]).splitlines()[1:]:
+    for line in out.splitlines()[1:]:
         parts = line.split("\t")
         if len(parts) != 3:
             continue
@@ -106,9 +120,12 @@ def classify(command):
 
 
 def processes():
-    """Pid -> (role, ppid, program name) for the processes watched."""
+    """Pid -> (role, ppid, program name), or None if sampling failed."""
+    out = run(["ps", "-axo", "pid=,ppid=,command="])
+    if out is None:
+        return None
     procs = {}
-    for line in run(["ps", "-axo", "pid=,ppid=,command="]).splitlines():
+    for line in out.splitlines():
         m = re.match(r"\s*(\d+)\s+(\d+)\s+(.*)", line)
         if not m:
             continue
@@ -121,11 +138,18 @@ def processes():
 
 
 def sockets(pids):
-    """Pid -> (listening ports, inbound connections as 'local->peer')."""
+    """Pid -> (listening ports, inbound connections), or None on failure.
+
+    An empty dict of pids is a successful sample with nothing to watch
+    ({}); only a failed lsof run returns None, so tick() can retain the
+    prior connections instead of reporting them all closed.
+    """
     result = {pid: (set(), set()) for pid in pids}
     if not pids:
         return result
     out = run(["lsof", "-nP", "-a", "-p", ",".join(map(str, pids)), "-iTCP", "-F", "pnT"])
+    if out is None:
+        return None
     pid = None
     name = None
     for line in out.splitlines():
@@ -165,76 +189,100 @@ class Monitor:
 
     def tick(self):
         now = time.time()
+        # #1380: a failed sample retains the prior state and at most
+        # surfaces a monitor.error record. It must never read as an
+        # empty sample: diffing a failure against the prior state would
+        # fabricate service.exit/process.exit/conn.drop/conn.close for
+        # still-running services, clear the state, and make the next
+        # good tick fabricate the matching starts.
         jobs = launchd_jobs()
-        for label in sorted(set(jobs) | set(self.jobs)):
-            old = self.jobs.get(label, (None, None))
-            new = jobs.get(label, (None, None))
-            if old[0] == new[0]:
-                continue
-            if old[0] is not None:
-                self.emit("service.exit", label=label, pid=old[0], last_exit_status=new[1], loaded=label in jobs)
-            if new[0] is not None:
-                # The first sample only reports what is already running.
-                self.emit("service.running" if self.first else "service.start", label=label, pid=new[0],
-                          previous_pid=old[0])
-        self.jobs = jobs
+        if jobs is None:
+            self.emit("monitor.error", error="sample failed: launchctl list")
+        else:
+            for label in sorted(set(jobs) | set(self.jobs)):
+                old = self.jobs.get(label, (None, None))
+                new = jobs.get(label, (None, None))
+                if old[0] == new[0]:
+                    continue
+                if old[0] is not None:
+                    self.emit("service.exit", label=label, pid=old[0], last_exit_status=new[1], loaded=label in jobs)
+                if new[0] is not None:
+                    # The first sample only reports what is already running.
+                    self.emit("service.running" if self.first else "service.start", label=label, pid=new[0],
+                              previous_pid=old[0])
+            self.jobs = jobs
 
         procs = processes()
-        for pid in sorted(set(self.procs) - set(procs)):
-            role, ppid, program = self.procs[pid]
-            open_conns = self.conns.pop(pid, {})
-            self.emit("process.exit", role=role, pid=pid, ppid=ppid, program=program, open_connections=len(open_conns))
-            if open_conns:
-                self.drops[(role, ppid)] = (now, len(open_conns), pid)
-                self.emit("conn.drop", role=role, pid=pid, count=len(open_conns), cause="server-exit",
-                          ports=sorted({c.split("->")[0].rsplit(":", 1)[-1] for c in open_conns}))
-        for pid in sorted(set(procs) - set(self.procs)):
-            role, ppid, program = procs[pid]
-            parent = procs.get(ppid, (None,))[0] or ("launchd" if ppid == 1 else None)
-            self.emit("process.running" if self.first else "process.start", role=role, pid=pid, ppid=ppid,
-                      parent_role=parent, program=program)
-        self.procs = procs
-        self.first = False
+        if procs is None:
+            self.emit("monitor.error", error="sample failed: ps")
+        else:
+            for pid in sorted(set(self.procs) - set(procs)):
+                role, ppid, program = self.procs[pid]
+                open_conns = self.conns.pop(pid, {})
+                self.emit("process.exit", role=role, pid=pid, ppid=ppid, program=program, open_connections=len(open_conns))
+                if open_conns:
+                    self.drops[(role, ppid)] = (now, len(open_conns), pid)
+                    self.emit("conn.drop", role=role, pid=pid, count=len(open_conns), cause="server-exit",
+                              ports=sorted({c.split("->")[0].rsplit(":", 1)[-1] for c in open_conns}))
+            for pid in sorted(set(procs) - set(self.procs)):
+                role, ppid, program = procs[pid]
+                parent = procs.get(ppid, (None,))[0] or ("launchd" if ppid == 1 else None)
+                self.emit("process.running" if self.first else "process.start", role=role, pid=pid, ppid=ppid,
+                          parent_role=parent, program=program)
+            self.procs = procs
+            if jobs is not None:
+                # Only a tick whose jobs and process samples both
+                # succeeded has a full baseline; otherwise the next good
+                # tick would report already-running services as starts.
+                self.first = False
 
         # #920: expire drops older than the reconnect window before they can
         # be consumed below, so a stale entry is discarded, not reported as
         # a reconnect of an unrelated later start.
         self.drops = {key: drop for key, drop in self.drops.items() if now - drop[0] <= RECONNECT_WINDOW_S}
 
-        servers = [pid for pid, (role, _, _) in procs.items() if role != "mcpx-daemon"]
-        for pid, (ports, conns) in sockets(servers).items():
-            role = procs[pid][0]
-            seen = self.conns.setdefault(pid, {})
-            opened = conns - set(seen)
-            closed = set(seen) - conns
-            stats = self.stats.setdefault(pid, [0, 0])
-            stats[0] += len(opened)
-            stats[1] += len(closed)
-            # Short requests come and go every few seconds and only feed
-            # conn.stats. A connection that lived LONG_LIVED_S or more is a
-            # stream or socket a client keeps open, so its closing is logged.
-            lived = sorted(round(now - seen[c]) for c in closed if now - seen[c] >= LONG_LIVED_S)
-            if lived:
-                self.emit("conn.close", role=role, pid=pid, ports=sorted(ports), count=len(lived),
-                          lived_s=[lived[0], lived[-1]], open_now=len(conns))
-            for c in opened:
-                seen[c] = now
-            for c in closed:
-                del seen[c]
-            key = (role, procs[pid][1])
-            drop = self.drops.get(key)
-            if drop and opened and pid != drop[2]:
-                self.emit("conn.reconnect", role=role, pid=pid, previous_pid=drop[2], gap_s=round(now - drop[0], 1),
-                          dropped=drop[1], reconnected=len(opened))
-                del self.drops[key]
+        if procs is None:
+            # No fresh pid set to sample sockets for; retain conns/stats.
+            pass
+        else:
+            servers = [pid for pid, (role, _, _) in procs.items() if role != "mcpx-daemon"]
+            sample = sockets(servers)
+            if sample is None:
+                self.emit("monitor.error", error="sample failed: lsof")
+            else:
+                for pid, (ports, conns) in sample.items():
+                    role = procs[pid][0]
+                    seen = self.conns.setdefault(pid, {})
+                    opened = conns - set(seen)
+                    closed = set(seen) - conns
+                    stats = self.stats.setdefault(pid, [0, 0])
+                    stats[0] += len(opened)
+                    stats[1] += len(closed)
+                    # Short requests come and go every few seconds and only feed
+                    # conn.stats. A connection that lived LONG_LIVED_S or more is a
+                    # stream or socket a client keeps open, so its closing is logged.
+                    lived = sorted(round(now - seen[c]) for c in closed if now - seen[c] >= LONG_LIVED_S)
+                    if lived:
+                        self.emit("conn.close", role=role, pid=pid, ports=sorted(ports), count=len(lived),
+                                  lived_s=[lived[0], lived[-1]], open_now=len(conns))
+                    for c in opened:
+                        seen[c] = now
+                    for c in closed:
+                        del seen[c]
+                    key = (role, procs[pid][1])
+                    drop = self.drops.get(key)
+                    if drop and opened and pid != drop[2]:
+                        self.emit("conn.reconnect", role=role, pid=pid, previous_pid=drop[2], gap_s=round(now - drop[0], 1),
+                                  dropped=drop[1], reconnected=len(opened))
+                        del self.drops[key]
 
-        if now - self.last_stats >= STATS_EVERY_S:
-            for pid, (opened, closed) in sorted(self.stats.items()):
-                if (opened or closed) and pid in procs:
-                    self.emit("conn.stats", role=procs[pid][0], pid=pid, opened=opened, closed=closed,
-                              open_now=len(self.conns.get(pid, {})), window_s=round(now - self.last_stats))
-            self.stats = {}
-            self.last_stats = now
+                if now - self.last_stats >= STATS_EVERY_S:
+                    for pid, (opened, closed) in sorted(self.stats.items()):
+                        if (opened or closed) and pid in procs:
+                            self.emit("conn.stats", role=procs[pid][0], pid=pid, opened=opened, closed=closed,
+                                      open_now=len(self.conns.get(pid, {})), window_s=round(now - self.last_stats))
+                    self.stats = {}
+                    self.last_stats = now
 
         if now - self.last_rotate > 60:
             self.last_rotate = now

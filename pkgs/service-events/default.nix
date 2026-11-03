@@ -160,5 +160,69 @@ runCommand "service-events"
     assert stale == [] and drops_after == {}, (stale, drops_after)
     fresh, _ = tick_with_drop(60)
     assert len(fresh) == 1 and fresh[0]["dropped"] == 4 and fresh[0]["previous_pid"] == 111, fresh
+    # #1380: a failed sampler sample must not read as an empty one. A
+    # tick whose samplers fail emits no fabricated exit/drop/close (or
+    # start) events and retains jobs/procs/conns state; a genuinely
+    # empty successful sample still reports the real exits.
+    assert monitor.run([sys.executable, "-c", "print('hello'); raise SystemExit(3)"]) is None
+    assert monitor.run(["/definitely/not/a/binary-xyz"]) is None
+    assert monitor.run([sys.executable, "-c", "pass"]) == ""
+    captured1380 = []
+    monitor.append_event = lambda source, event, **f: captured1380.append((event, f))
+    primed_jobs = {"org.nixos.mcpx": (4321, "0")}
+    primed_procs = {4321: ("mcpx-daemon", 1, "mcpx")}
+    conn1380 = "10.0.0.1:8080->10.0.0.2:5000"
+    def prime1380(m):
+        m.first = False
+        m.last_stats = time.time()
+        m.last_rotate = time.time()
+        m.jobs = dict(primed_jobs)
+        m.procs = dict(primed_procs)
+        m.conns = {4321: {conn1380: time.time() - 100}}
+        m.stats = {}
+        m.drops = {}
+    # All samplers failing: only monitor.error records, state retained.
+    monitor.launchd_jobs = lambda: None
+    monitor.processes = lambda: None
+    monitor.sockets = lambda pids: None
+    m1380 = monitor.Monitor()
+    prime1380(m1380)
+    m1380.tick()
+    assert all(e == "monitor.error" for e, f in captured1380), captured1380
+    assert m1380.jobs == primed_jobs and m1380.procs == primed_procs, (m1380.jobs, m1380.procs)
+    assert set(m1380.conns[4321]) == {conn1380}, m1380.conns
+    # The next good tick with unchanged data reports nothing (no starts).
+    captured1380.clear()
+    monitor.launchd_jobs = lambda: dict(primed_jobs)
+    monitor.processes = lambda: dict(primed_procs)
+    monitor.sockets = lambda pids: {4321: ({"8080"}, {conn1380})}
+    m1380.tick()
+    assert captured1380 == [], captured1380
+    # A genuinely empty successful sample still reports the real exits.
+    captured1380.clear()
+    m1380b = monitor.Monitor()
+    prime1380(m1380b)
+    monitor.launchd_jobs = lambda: {}
+    monitor.processes = lambda: {}
+    monitor.sockets = lambda pids: {}
+    m1380b.tick()
+    exits1380 = [e for e, f in captured1380]
+    assert "service.exit" in exits1380 and "process.exit" in exits1380 and "conn.drop" in exits1380, exits1380
+    assert m1380b.jobs == {} and m1380b.procs == {}, (m1380b.jobs, m1380b.procs)
+    # An lsof-only failure keeps the connection (no conn.close, no stats
+    # churn); an empty socket sample for a live process closes it.
+    captured1380.clear()
+    m1380c = monitor.Monitor()
+    prime1380(m1380c)
+    monitor.launchd_jobs = lambda: dict(primed_jobs)
+    monitor.processes = lambda: dict(primed_procs)
+    monitor.sockets = lambda pids: None
+    m1380c.tick()
+    assert "conn.close" not in [e for e, f in captured1380], captured1380
+    assert set(m1380c.conns[4321]) == {conn1380} and m1380c.stats == {}, (m1380c.conns, m1380c.stats)
+    captured1380.clear()
+    monitor.sockets = lambda pids: {4321: (set(), set())}
+    m1380c.tick()
+    assert "conn.close" in [e for e, f in captured1380], captured1380
     EOF
   ''
