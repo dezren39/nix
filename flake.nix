@@ -856,6 +856,7 @@ rec {
               mkdir -p lib
               cp $src/lib/common.sh lib/
               cp $src/lib/arg-probe.sh lib/
+              cp $src/lib/outcome-probe.sh lib/
               chmod u+w ./clean.sh ./clean.test.sh ./git-discover-repos ./var-folders-clean.sh
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"

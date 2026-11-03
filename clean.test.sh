@@ -666,12 +666,15 @@ BC_DIR="$TMP_ROOT/brew-cleanup"
 mkdir -p "$BC_DIR"
 export BREW_STUB_LOG="$BC_DIR/invocations.log"
 export BREW_STUB_FAIL=0
-cat > "$BC_DIR/brew" <<'STUB'
-#!/usr/bin/env bash
+# The stub's shebang names this bash by path, like the other stubs in this
+# file: the nix build sandbox has no /usr/bin/env (#978), so an env shebang
+# makes the stub unexecutable there and brew_cleanup runs it 0 times.
+{ printf '#!%s\n' "$(command -v bash)"; cat <<'STUB'
 echo "$*" >> "$BREW_STUB_LOG"
 [ "${BREW_STUB_FAIL:-0}" = "1" ] && exit 1
 exit 0
 STUB
+} > "$BC_DIR/brew"
 chmod +x "$BC_DIR/brew"
 sed -n '/^brew_cleanup() {/,/^}/p' "$SCRIPT" > "$BC_DIR/brew_cleanup.sh"
 [ -s "$BC_DIR/brew_cleanup.sh" ] || fail "could not extract brew_cleanup from clean.sh"
