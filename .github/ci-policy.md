@@ -58,11 +58,11 @@ three watched main-tier workflows (`mcpx nix build`,
 `main` files (or appends to) a `main-broken` issue, keyed separately
 per workflow (the workflow name is part of the Breakage-ID). This repo has
 no Jules door, so the watcher enqueues the fix task itself at filing
-time via the pm-dispatch-queue action
-(`developing-today/code/.github/actions/pm-dispatch-queue@main`) at
-critical priority, attached to the issue it just filed. If that
-enqueue step fails, the issue carries the `queue/queued` label and
-the fleet monitor enqueues it as the fallback.
+time in an inline workflow step: it mints a GitHub Actions OIDC token
+and posts the task to pm-dispatch's `/v1/tasks` endpoint at critical
+priority, attached to the issue it just filed. If that enqueue step
+fails, the issue carries the `queue/queued` label and the fleet monitor
+enqueues it as the fallback.
 
 ## Release gate — Phase 3 (developing-today/code#1782, step 7)
 
@@ -75,10 +75,12 @@ no push step; `main-broken watcher` files/appends issues;
 only checks lockfiles; `buffer-backup renovate bun sync`
 pushes a regenerated `bun.lock` back to the Renovate PR branch it
 syncs (PR-scoped lockfile commit, not an artifact/cache/release
-publish); `opencode` is a comment-triggered bot; `agents` reuses the
-`pm-scheduled` workflow. No step pushes artifacts, caches, container
-images, or GitHub Releases, so there is nothing to gate today — the
-release-gate acceptance is vacuously satisfied for this repo.
+publish); `opencode` is a comment-triggered bot; `agents` inlines the
+scheduled pm-dispatch behavior in `.github/workflows/agents.yml` rather
+than calling the reusable `pm-scheduled` workflow. No step pushes
+artifacts, caches, container images, or GitHub Releases, so there is
+nothing to gate today — the release-gate acceptance is vacuously
+satisfied for this repo.
 
 Gate rule for any future publish path: a workflow that publishes
 (artifacts, caches, images, releases) MUST first verify that the
