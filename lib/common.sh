@@ -159,6 +159,169 @@ arg_decimal() {
 }
 
 # ---------------------------------------------------------------------------
+# The operation outcome contract (design #1339, phase 1)
+# ---------------------------------------------------------------------------
+# A failure is keyed by the item whose outcome is in doubt (usually a repo or
+# path), not by the number of failed subprocesses. That keeps parallel worker
+# failures distinct-item-counted while allowing several failures for one item
+# to produce one summary entry.
+#
+# Consumers call outcome_init once, then outcome_fail ITEM OPERATION TARGET
+# STATUS [DETAIL] at a failed operation site. Parallel workers may share an
+# outcome directory created by outcome_fail_files; each worker writes an
+# atomic record there and the parent merges/deduplicates the records before
+# finishing. outcome_enumerate streams producer stdout while carrying its
+# status and stderr through files, which also works inside process
+# substitutions where the producer's exit status would otherwise be lost.
+
+OUTCOME_PROGRAM="${OUTCOME_PROGRAM:-${0##*/}}"
+OUTCOME_FAIL_DIR="${OUTCOME_FAIL_DIR:-}"
+declare -gA OUTCOME_FAILURES=()
+
+# outcome_init [PROGRAM]
+#   Reset this process's accumulator and set the summary/error prefix.
+outcome_init() {
+  OUTCOME_PROGRAM="${1:-${0##*/}}"
+  export OUTCOME_PROGRAM
+  OUTCOME_FAILURES=()
+}
+
+# outcome_fail_files DIR
+#   Enable parallel-safe, per-failure records in DIR. The caller owns the
+#   directory's lifetime and removes it after outcome_finish.
+outcome_fail_files() {
+  local _outcome_dir="$1"
+  mkdir -p "$_outcome_dir" || return 1
+  OUTCOME_FAIL_DIR="$_outcome_dir"
+  export OUTCOME_FAIL_DIR
+}
+
+_outcome_remember() {
+  local _outcome_key="$1" _outcome_summary="$2"
+  [ -n "$_outcome_key" ] || _outcome_key="__outcome_missing_item__"
+  if [ -z "${OUTCOME_FAILURES["$_outcome_key"]+present}" ]; then
+    OUTCOME_FAILURES["$_outcome_key"]="$_outcome_summary"
+  fi
+}
+
+# outcome_fail ITEM OPERATION TARGET STATUS [DETAIL]
+#   Report the operation failure in the caller's vocabulary and record it
+#   under ITEM. Repeated failures for the same item count once in the summary.
+outcome_fail() {
+  local _outcome_key="$1" _outcome_operation="$2" _outcome_target="$3"
+  local _outcome_status="$4" _outcome_detail="${5:-}"
+  local _outcome_summary="${_outcome_target:-$_outcome_key}"
+  local _outcome_record="" _outcome_published=""
+
+  printf '%s: %s failed for %s (status %s)' \
+    "$OUTCOME_PROGRAM" "$_outcome_operation" "$_outcome_target" "$_outcome_status" >&2
+  [ -z "$_outcome_detail" ] || printf ': %s' "$_outcome_detail" >&2
+  printf '\n' >&2
+
+  _outcome_remember "$_outcome_key" "$_outcome_summary"
+  if [ -n "${OUTCOME_FAIL_DIR:-}" ]; then
+    [ -d "$OUTCOME_FAIL_DIR" ] || mkdir -p "$OUTCOME_FAIL_DIR"
+    _outcome_record=$(mktemp "${OUTCOME_FAIL_DIR%/}/.outcome.XXXXXXXXXXXX") || {
+      printf '%s: could not record failure for %s in %s\n' \
+        "$OUTCOME_PROGRAM" "$_outcome_target" "$OUTCOME_FAIL_DIR" >&2
+      return 1
+    }
+    if ! printf '%s\0%s\0' "$_outcome_key" "$_outcome_summary" >"$_outcome_record"; then
+      rm -f "$_outcome_record"
+      printf '%s: could not write failure record for %s\n' \
+        "$OUTCOME_PROGRAM" "$_outcome_target" >&2
+      return 1
+    fi
+    _outcome_published="${OUTCOME_FAIL_DIR%/}/outcome.${_outcome_record##*.outcome.}"
+    if ! mv "$_outcome_record" "$_outcome_published"; then
+      rm -f "$_outcome_record"
+      printf '%s: could not publish failure record for %s\n' \
+        "$OUTCOME_PROGRAM" "$_outcome_target" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
+# outcome_fail_unnamed OPERATION STATUS [DETAIL]
+#   A worker that dies before naming its item still contributes exactly one
+#   distinct failure, even if more than one worker does so.
+outcome_fail_unnamed() {
+  outcome_fail "__outcome_unnamed_worker_death__" "$1" "unknown item" "$2" \
+    "${3:-worker exited without naming an item}"
+}
+
+# outcome_enumerate STATUS_FILE STDERR_FILE -- COMMAND [ARG...]
+#   Run an enumerator with stdout left as a stream and its stderr/status
+#   carried out-of-band. Callers read STATUS_FILE and STDERR_FILE and treat
+#   any non-zero status as a failed enumeration instead of accepting an empty
+#   or partial result; they own reporting that captured stderr in context.
+outcome_enumerate() {
+  local _outcome_status_file="$1" _outcome_stderr_file="$2"
+  local _outcome_status=0
+  shift 2
+  [ "${1:-}" = "--" ] || {
+    printf '%s: outcome_enumerate requires -- before the producer command\n' \
+      "$OUTCOME_PROGRAM" >&2
+    return 2
+  }
+  shift
+  [ "$#" -gt 0 ] || {
+    printf '%s: outcome_enumerate requires a producer command\n' "$OUTCOME_PROGRAM" >&2
+    return 2
+  }
+
+  "$@" 2>"$_outcome_stderr_file" || _outcome_status=$?
+  printf '%s\n' "$_outcome_status" >"$_outcome_status_file" || {
+    printf '%s: could not write enumeration status to %s\n' \
+      "$OUTCOME_PROGRAM" "$_outcome_status_file" >&2
+    return 1
+  }
+  return 0
+}
+
+_outcome_load_failures() {
+  local _outcome_dir="${1:-${OUTCOME_FAIL_DIR:-}}" _outcome_file
+  local _outcome_key _outcome_summary
+  [ -n "$_outcome_dir" ] || return 0
+  for _outcome_file in "$_outcome_dir"/outcome.*; do
+    [ -f "$_outcome_file" ] || continue
+    while IFS= read -r -d '' _outcome_key && IFS= read -r -d '' _outcome_summary; do
+      _outcome_remember "$_outcome_key" "$_outcome_summary"
+    done <"$_outcome_file"
+  done
+}
+
+# outcome_has_failures [DIR]
+#   True when this process or a parallel worker recorded at least one item.
+outcome_has_failures() {
+  _outcome_load_failures "${1:-}"
+  [ "${#OUTCOME_FAILURES[@]}" -gt 0 ]
+}
+
+# outcome_finish [DIR]
+#   Print a distinct-item summary and exit 1 on failure, otherwise exit 0.
+outcome_finish() {
+  local _outcome_dir="${1:-${OUTCOME_FAIL_DIR:-}}"
+  local _outcome_key _outcome_count _outcome_summary=""
+  local -a _outcome_items=()
+  _outcome_load_failures "$_outcome_dir"
+  _outcome_count=${#OUTCOME_FAILURES[@]}
+  [ "$_outcome_count" -gt 0 ] || exit 0
+
+  for _outcome_key in "${!OUTCOME_FAILURES[@]}"; do
+    _outcome_items+=("${OUTCOME_FAILURES[$_outcome_key]}")
+  done
+  for _outcome_key in "${_outcome_items[@]}"; do
+    [ -z "$_outcome_summary" ] || _outcome_summary+="; "
+    _outcome_summary+="$_outcome_key"
+  done
+  printf '%s: %s operation(s) failed: %s\n' \
+    "$OUTCOME_PROGRAM" "$_outcome_count" "$_outcome_summary" >&2
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
 # Spotlight marker
 # ---------------------------------------------------------------------------
 # A `.metadata_never_index` marker applies recursively, so marking a directory

@@ -20,6 +20,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 . "$SELF_DIR/lib/common.sh"
 ARG_PROGRAM="clean.sh"
+outcome_init "$ARG_PROGRAM"
 
 # ---------------------------------------------------------------------------
 # Flags. Vocabulary matches git-maintain-repos and spotlight-exclude-artifacts.
@@ -45,7 +46,6 @@ REPO_FLAGS_USED=""
 USE_SUDO=""          # empty = decide from --dry-run
 CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
 VAR_FOLDERS_ROOT="${VAR_FOLDERS_ROOT:-/private/var/folders}" # var-folders root for the --tmpdir sweep AND the opencode scratch tidy/discovery roots below (env seam so tests can point it at a fixture, #1346)
-TMPDIR_SWEEP_FAILED=0   # set at the --tmpdir call site when var-folders-clean.sh reports deletion failures (#1270)
 TIDY_MOVE_FAILURES=0   # incremented by tidy_file_to_bucket/tidy_dir_to_bucket when an archive move fails (#1337)
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
 DOCKER_AGE_DAYS="${DOCKER_AGE_DAYS:-}"  # set = age-scoped docker prune, VM preserved
@@ -631,13 +631,17 @@ print_unknown_scratch_report() {
 # (var-folders-clean.test.sh, run by the flake check) exercises the
 # shipped logic instead of a pasted copy (#557). The helper exits 1
 # naming any deletions that failed (#1262); that signal must not die at
-# this, its only, call site (#1270): warn now and remember the failure
-# in TMPDIR_SWEEP_FAILED -- the caller decides when the run exits
-# non-zero (HALF 1: at the very end, after the remaining sweeps and the
-# final report; --only-tmpdir: immediately).
+# this, its only, call site (#1270): warn now and record the failure.
+# --only-tmpdir exits immediately; a full run exits after the remaining sweeps
+# and final report.
 run_tmpdir_sweep() {
-  bash "$SELF_DIR/var-folders-clean.sh" "$VAR_FOLDERS_ROOT" \
-    || { TMPDIR_SWEEP_FAILED=1; warn "/private/var/folders sweep failed: var-folders-clean.sh could not delete everything (see above)"; }
+  local _tmpdir_status=0
+  bash "$SELF_DIR/var-folders-clean.sh" "$VAR_FOLDERS_ROOT" || _tmpdir_status=$?
+  if [ "$_tmpdir_status" -ne 0 ]; then
+    warn "/private/var/folders sweep failed: var-folders-clean.sh could not delete everything (see above)"
+    outcome_fail "var-folders-sweep" "var-folders-clean.sh" "$VAR_FOLDERS_ROOT" \
+      "$_tmpdir_status" "could not delete everything (see above)"
+  fi
 }
 
 if [ "$ONLY_UNKNOWN_SCRATCH" = "1" ]; then
@@ -662,8 +666,7 @@ if [ "$ONLY_TMPDIR" = "1" ]; then
     exit 0
   fi
   run_tmpdir_sweep
-  [ "$TMPDIR_SWEEP_FAILED" = "1" ] && exit 1
-  exit 0
+  outcome_finish
 fi
 
 #############################################################################
@@ -2105,13 +2108,11 @@ else echo "⚠️  No net disk reclaimed ($(human_size $(( -RECLAIMED ))) more u
 # gone by the time this prints).
 print_unknown_scratch_report
 
-# A failed --tmpdir sweep fails the run (#1270): var-folders-clean.sh's
-# exit-1 signal is captured at its call site above (TMPDIR_SWEEP_FAILED)
-# and lands here, after every other sweep and the final report, so a
-# partially failed sweep no longer ends at exit 0.
-if [ "$TMPDIR_SWEEP_FAILED" = "1" ]; then
+# A failed --tmpdir sweep fails the run (#1270): its status is recorded at
+# the call site above and lands here, after every other sweep and the final
+# report, so a partially failed sweep no longer ends at exit 0.
+if outcome_has_failures; then
   warn "/private/var/folders sweep failed -- clean.sh exiting non-zero"
-  exit 1
 fi
 
 # Failed tidy archive moves fail the run (#1337): tidy_file_to_bucket /
@@ -2122,3 +2123,4 @@ if [ "$TIDY_MOVE_FAILURES" -gt 0 ]; then
   warn "opencode tidy: $TIDY_MOVE_FAILURES archive move(s) failed -- clean.sh exiting non-zero"
   exit 1
 fi
+outcome_finish
