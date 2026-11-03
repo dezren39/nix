@@ -13,8 +13,10 @@
 #                 step, no success banner (the plist write did happen)
 #   blocked dir:  LaunchAgents is a regular file -> exit non-zero
 #                 naming the directory/write step, no success banner
-#   happy path:   dir pre-exists -> exit 0, banner, plist byte-identical
-#                 to the missing-dir run
+#   happy path:   dir pre-exists -> exit 0, banner, plist identical to
+#                 the missing-dir run modulo the fixture HOME prefix
+#   plist target: the written plist names the fixture HOME's patch
+#                 script, never a hardcoded /Users/... path (#1366)
 #   --help:       exit 0, usage printed, no plist written (#1177)
 #   unknown arg:  exit 2 naming it, usage in output, no plist written,
 #                 no success banner (#1177)
@@ -66,6 +68,10 @@ rc=$(run_installer "$home1" "$stub" 0 "$work/out1")
 grep -q "Installed and loaded" "$work/out1"; check "945 missing-dir banner printed" $?
 grep -q "<string>com.drewry.patch-vscode-insiders</string>" "$home1/$PLIST_REL" 2>/dev/null
 check "945 missing-dir plist names the agent" $?
+grep -qF "<string>$home1/nix/patch-vscode-insiders.sh</string>" "$home1/$PLIST_REL" 2>/dev/null
+check "1366 missing-dir plist names the checked patch script" $?
+grep -q "/Users/" "$home1/$PLIST_REL" 2>/dev/null; [ $? -ne 0 ]
+check "1366 missing-dir plist has no hardcoded /Users path" $?
 cp "$home1/$PLIST_REL" "$work/golden.plist" 2>/dev/null
 
 # failing load: stub launchctl load exits 42.
@@ -97,7 +103,14 @@ mkdir -p "$home4/Library/LaunchAgents"
 rc=$(run_installer "$home4" "$stub" 0 "$work/out4")
 [ "$rc" -eq 0 ]; check "945 happy path exits 0" $?
 grep -q "Installed and loaded" "$work/out4"; check "945 happy path banner printed" $?
-cmp -s "$home4/$PLIST_REL" "$work/golden.plist"; check "945 happy path plist byte-identical" $?
+grep -qF "<string>$home4/nix/patch-vscode-insiders.sh</string>" "$home4/$PLIST_REL" 2>/dev/null
+check "1366 happy path plist names the checked patch script" $?
+# Byte-identical to the missing-dir run once each fixture HOME prefix
+# is normalised out (#1366: the plist now derives its program path from
+# $PATCH_SCRIPT, so the two fixture homes legitimately differ there).
+sed "s|$home1|FIXTURE_HOME|g" "$work/golden.plist" > "$work/golden.norm" 2>/dev/null
+sed "s|$home4|FIXTURE_HOME|g" "$home4/$PLIST_REL" > "$work/happy.norm" 2>/dev/null
+cmp -s "$work/happy.norm" "$work/golden.norm"; check "945 happy path plist byte-identical (HOME-normalised)" $?
 
 # --help: usage, exit 0, no side effects (#1177).
 home5="$work/home5"
