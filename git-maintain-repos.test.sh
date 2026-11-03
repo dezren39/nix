@@ -63,8 +63,12 @@ snapshot() { find "$VALID" "$HOME" | sort; }
 STUB_DIR="$TMP_ROOT/git-stub"
 mkdir -p "$STUB_DIR"
 REAL_GIT="$(command -v git)"
+# The shebang must name a real interpreter: /usr/bin/env does not exist in
+# the nix build sandbox (#1404), so the stub failed with "bad interpreter"
+# and every git call -- including the reflog-expire parse probe -- took the
+# stub down with it.
 cat > "$STUB_DIR/git" <<EOF
-#!/usr/bin/env bash
+#!$(command -v bash)
 if [ "\${1:-}" = "maintenance" ] && [ "\${2:-}" = "start" ]; then
   if [ "\${GIT_STUB_MAINT_START_RC:-0}" != "0" ]; then
     echo "stub git: maintenance start failed" >&2
