@@ -1,6 +1,6 @@
 ---
 name: update-opencode
-description: Updates the OpenCode / OpenChamber stack this nix-darwin config builds from developing-today's own forks, and repairs it when it breaks, from the forks up through this repo's flake.lock. Use when asked to update or upgrade OpenCode or OpenChamber, refresh the opencode/openchamber flake inputs, fix a failing opencode or openchamber build, or when OpenChamber/OpenCode misbehaves after an update.
+description: Updates the OpenCode / OpenChamber stack this nix-darwin config builds from developing-today's own forks, and repairs it when it breaks, from the forks up through this repo's flake.lock. Use when asked to update or upgrade OpenCode or OpenChamber, refresh the openchamber flake input (which pins opencode), fix a failing opencode or openchamber build, or when OpenChamber/OpenCode misbehaves after an update.
 ---
 
 # Update the OpenCode / OpenChamber stack
@@ -12,18 +12,22 @@ own, and every fix goes into the fork it belongs to:
 anomalyco/opencode (dev, v2)  ->  dezren39/opencode  ->  developing-today/opencode   (main)
 openchamber/openchamber       ->  dezren39/openchamber -> developing-today/openchamber (main)
                                                               |
-                                  inputs.opencode.follows = "opencode"   (this repo)
+                                  inputs.openchamber.inputs.opencode   (this repo, via its only developing-today input)
 ```
 
-- `inputs.opencode` = `github:developing-today/opencode` (default branch `main`).
-  Its own `nixpkgs` is deliberately NOT followed: the fork's
-  `nix/hashes.json` node_modules hashes are computed with the bun in the
-  fork's locked nixpkgs.
-- `inputs.openchamber` = `github:developing-today/openchamber`, with
-  `inputs.opencode.follows = "opencode"`, so there is one OpenCode.
+- There is no root `opencode` input in this repo. OpenCode is reached as
+  `inputs.openchamber.inputs.opencode` = `github:developing-today/opencode`
+  (default branch `main`), as pinned by OpenChamber's lock. Its own
+  `nixpkgs` is deliberately NOT followed: the fork's `nix/hashes.json`
+  node_modules hashes are computed with the bun in the fork's locked nixpkgs.
+- `inputs.openchamber` = `github:developing-today/openchamber` — this repo's
+  only developing-today input. Its own `opencode` input is the one OpenCode
+  this repo consumes, so there is one OpenCode.
 - `flake.nix` `mkPackages`:
-  - `opencode-unwrapped` = the fork's `packages.<sys>.opencode`, overridden
-    with this repo's `mcpx`.
+  - `opencode-unwrapped` = `inputs.openchamber.inputs.opencode.packages.<sys>.opencode`,
+    unmodified: it already bundles the fork's `mcpx`. `mcpx` itself is likewise
+    re-exposed from the chain (`inputs.openchamber.inputs.opencode.packages.<sys>.mcpx`),
+    not built here.
   - `opencode` = a shell wrapper that FORCES
     `OPENCODE_DB=$HOME/.local/share/opencode/opencode.db` and points `TMPDIR`
     at `~/.local/share/opencode/tmp` (`OPENCODE_TMPDIR` overrides). Never
@@ -59,7 +63,7 @@ force-push `main`.
 4. Update OpenChamber's pin and verify it builds against that OpenCode:
    in developing-today/openchamber, `nix flake update opencode`, then
    `nix build .#openchamber .#openchamber-desktop -L`. Commit the lock and push.
-5. In this repo: `nix flake update opencode openchamber`, then
+5. In this repo: `nix flake update openchamber`, then
    `just build-no-commit` until it passes, then one `just build` to commit.
    Activation (`just switch`) needs sudo and the user.
 

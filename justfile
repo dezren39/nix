@@ -552,7 +552,7 @@ opencode-db-check db="":
 opencode-db-pending:
     #!/usr/bin/env bash
     set -euo pipefail
-    src=$(nix eval --raw .#inputs.opencode.outPath 2>/dev/null || \
+    src=$(nix eval --impure --raw --expr '(builtins.getFlake (toString ./.)).inputs.openchamber.inputs.opencode.outPath' 2>/dev/null || \
       nix flake prefetch --json "github:developing-today/opencode/$(jq -r .nodes.opencode.locked.rev flake.lock)" | jq -r .storePath)
     tmp=$(mktemp -d)
     grep -ho 'id: "[^"]*"' "$src"/packages/core/src/database/migration/*.ts \

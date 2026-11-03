@@ -103,8 +103,10 @@ Where things go:
   servers: `just mcp-login <name>` / `just context7-login`. Smoke test:
   `just mcpx-check`.
 - **OpenCode and OpenChamber come from forks we own** (developing-today/opencode,
-  developing-today/openchamber; `main`; openchamber's `opencode` input follows
-  ours). Nothing is patched here: fix the fork, push to its `main`, then re-pin
+  developing-today/openchamber; `main`; this repo's only developing-today
+  input is `openchamber`, and opencode is reached as
+  `inputs.openchamber.inputs.opencode`). Nothing is patched here: fix the
+  fork, push to its `main`, then re-pin
   upward (opencode -> openchamber lock -> this repo's lock). Procedure: the
   `update-opencode` skill. `flake.nix` wraps the fork's opencode only to force
   `OPENCODE_DB=~/.local/share/opencode/opencode.db` (the one database every
@@ -112,8 +114,10 @@ Where things go:
 - `openchamber.nix`: launchd agent `org.nixos.openchamber` keeps `openchamber
   serve` up on 127.0.0.1:3000 (port of developing-today/code's systemd model);
   the desktop app is its client. mcpx (source: developing-today/code's
-  `pkgs/mcpx`, built here from the pinned `mcpx-src` flake input) runs as
-  launchd agent `org.nixos.mcpx`; its servers are in `mcpx.config.nix`.
+  `pkgs/mcpx`, built in the opencode fork and re-exposed here as
+  `inputs.openchamber.inputs.opencode.packages.<sys>.mcpx` — not built here)
+  runs as launchd agent `org.nixos.mcpx`; its servers are in
+  `mcpx.config.nix`.
 - Database tools: `just opencode-db-backup` (instant APFS clone),
   `opencode-db-check`, `opencode-db-pending` (migrations a new build would
   apply; refuses if the DB is ahead of the build).
