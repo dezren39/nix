@@ -19,9 +19,9 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ## mcpx moves to developing-today/code
 
-`developing-today/code` is the only place the mcpx source lives (`pkgs/mcpx` there). This repo builds it from the pinned `mcpx-src` flake input (#468); the vendored copy that used to sit at `pkgs/mcpx` here is deleted. The plan was [`planning/plans/mcpx-extraction.md`](planning/plans/mcpx-extraction.md).
+`developing-today/code` is the only place the mcpx source lives (`pkgs/mcpx` there). This repo first built it from a pinned source-only flake input (#468); since #1388 (2026-11-03) it no longer builds mcpx at all - the fork's build arrives through the openchamber -> opencode chain and flake.nix only re-exposes it. The vendored copy that used to sit at `pkgs/mcpx` here is deleted. The plan was [`planning/plans/mcpx-extraction.md`](planning/plans/mcpx-extraction.md).
 
-The OpenCode fork does not bundle mcpx. It links one only if the consumer passes it in, and this repo passes the build from the pinned input.
+The OpenCode fork now bundles its own mcpx build (of code's `pkgs/mcpx`); that bundled build is the one this repo runs - the same build the mcpx daemon modules default to, so no consumer-passed override remains.
 
 | Title                                    | Horizon | Status   | Intent                                                                                                             | Links                                                                  |
 | ---------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |

@@ -10,6 +10,10 @@ Written 2026-10-19. Upstream file:line references are to the revisions pinned in
 `flake.lock` then: developing-today/openchamber `94b7e56f9`, developing-today/opencode
 `f9aa962`, developing-today/code (`mcpx-src`) `7274889`.
 
+Note (2026-11-03, #1388): the `mcpx-src` input no longer exists; mcpx
+now arrives through the openchamber -> opencode chain. The 2026-10-19
+pins above are kept as the record of what this page was written against.
+
 ## What runs
 
 | Service | launchd label | Program | Listens | Logs |

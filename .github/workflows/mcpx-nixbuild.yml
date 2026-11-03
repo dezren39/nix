@@ -5,9 +5,11 @@ name: mcpx nix build
 #
 # Narrow package-build verification (#418, rewired by #468).
 #
-# mcpx's source lives only in developing-today/code now; this repo builds
-# it from the pinned mcpx-src flake input, using the package.nix beside
-# that source. Evaluation cannot catch a stale vendorHash or a bad pin
+# mcpx's source lives only in developing-today/code now; this repo no
+# longer builds it from a local input - since #1388 the package arrives
+# through the openchamber -> opencode chain (flake.nix re-exposes
+# inputs.openchamber.inputs.opencode's mcpx, the fork's build of code's
+# package). Evaluation cannot catch a stale vendorHash or a bad pin
 # (the hash is just a string at eval time; it fails only when the
 # go-modules derivation is actually built), so the full build is the
 # main-tier check (below).
@@ -59,9 +61,11 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       # Darwin mcpx skip guard (eval only, no darwin build): the
-      # darwin -skip override in flake.nix keys on the canonical
-      # checkPhase line in code's package.nix and throws when the
-      # pattern stops matching (developing-today/code#418).
+      # darwin -skip list is constructed inside code's package itself
+      # (its goTestCmd, since developing-today/code PR #4799) - this
+      # repo's old flake.nix override is gone (#1388). The guard evals
+      # the aarch64-darwin checkPhase the chain delivers and fails if
+      # the -skip list ever stops arriving (developing-today/code#418).
       - name: Darwin mcpx skip guard
         run: |
           phase="$(nix eval --raw .#packages.aarch64-darwin.mcpx.checkPhase)"
