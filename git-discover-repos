@@ -244,9 +244,11 @@ scan_deep() {
   # seed_path turns the status into the script's exit status. --auto is
   # best-effort by design, so seed_auto ignores the status and the
   # failure stays quiet there.
-  local err_file find_status
-  err_file="$(mktemp)"
-  find -H "$1" "${DEPTH_ARGS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -print -o -name .git -print 2>"$err_file" |
+  local status_file stderr_file find_status
+  status_file="$(mktemp)"
+  stderr_file="$(mktemp)"
+  outcome_enumerate "$status_file" "$stderr_file" -- \
+    find -H "$1" "${DEPTH_ARGS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -print -o -name .git -print |
     while IFS= read -r hit; do
       # Fast parameter expansion avoids subshell execution of basename in discovery loop
       case "${hit##*/}" in
@@ -254,16 +256,17 @@ scan_deep() {
         *)    printf '%s\n' "$hit" >> "$ARTIFACTS_FILE" ;;
       esac
     done
-  find_status=${PIPESTATUS[0]}
+  find_status=0
+  IFS= read -r find_status < "$status_file" || find_status=0
   if [ "$find_status" -ne 0 ]; then
     if [ "$MODE" = "path" ]; then
-      cat "$err_file" >&2
+      cat "$stderr_file" >&2
       echo "git-discover-repos: failed to enumerate: $1" >&2
     fi
-    rm -f "$err_file"
+    rm -f "$status_file" "$stderr_file"
     return 1
   fi
-  rm -f "$err_file"
+  rm -f "$status_file" "$stderr_file"
   return 0
 }
 

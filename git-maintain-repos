@@ -309,17 +309,15 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
   # Per-repo failures must reach the exit code (#1331): every step below
   # records a failure -- repo + step named on stderr -- instead of
   # discarding its status, and the worker exits non-zero at the end if
-  # any step recorded one. GMR_FAIL_DIR (set by the driver) collects one
-  # file per failed step naming the repo, so the driver can summarise
-  # the distinct failed repos after the parallel fan-out.
-  worker_failures=0
+  # any step recorded one. The shared outcome accumulator (design #1339
+  # phase 2) keys each failure by repo and carries the step in the target,
+  # so the per-step line keeps its wording and the driver can summarise
+  # the distinct failed repos after the parallel fan-out. With
+  # OUTCOME_FAIL_DIR set by the driver, each failure is also published as
+  # a parallel-safe fail file for the parent to merge.
+  outcome_init "git-maintain-repos"
   gmr_fail() {
-    echo "git-maintain-repos: maintenance failed for $repo: $1 (exit $2)" >&2
-    worker_failures=$((worker_failures + 1))
-    if [ -n "${GMR_FAIL_DIR:-}" ] && [ -d "${GMR_FAIL_DIR:-}" ]; then
-      _fail_file=$(mktemp "$GMR_FAIL_DIR/fail.XXXXXX" 2>/dev/null) \
-        && printf '%s\n' "$repo" > "$_fail_file"
-    fi
+    outcome_fail "$repo" "maintenance" "$repo: $1" "$2"
   }
   # A maintenance task's stderr is captured, not discarded: silent on
   # success (a successful run's output is unchanged), replayed to
@@ -417,7 +415,7 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
 
   after=$(du -sk "$repo/.git" 2>/dev/null | cut -f1); after=${after:-0}
   printf '  %-50s %6s MB -> %6s MB\n' "$name" "$((before / 1024))" "$((after / 1024))"
-  [ "$worker_failures" -eq 0 ] || exit 1
+  outcome_has_failures && exit 1
   exit 0
 fi
 
@@ -539,31 +537,40 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-# Worker failures aggregate here (#1331), the way register_failures
-# does below: each failing worker drops one file per failed step in
-# GMR_FAIL_DIR naming its repo, and the driver summarises the distinct
-# failed repos before exiting. The old fan-out discarded the xargs
+# Worker failures aggregate here (#1331) on the shared outcome accumulator
+# (design #1339 phase 2): each failing worker publishes a fail record naming
+# its repo, and the driver merges and deduplicates them by item before
+# summarising the distinct failed repos. The old fan-out discarded the xargs
 # result entirely, so even a non-zero worker could not change the exit.
+outcome_init "git-maintain-repos"
 GMR_FAIL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/git-maintain-repos-failures.XXXXXX")"
+outcome_fail_files "$GMR_FAIL_DIR"
 printf '%s\0' "${repos[@]}" |
   GMR_ONE=1 DEPTH="$DEPTH" FSCK="$FSCK" CLEAN_ORPHANS="$CLEAN_ORPHANS" REGISTER="$REGISTER" \
   REFLOG_EXPIRE="$REFLOG_EXPIRE" PACK_THREADS="$PACK_THREADS" EXPIRE_REFLOG="$EXPIRE_REFLOG" \
-  GMR_FAIL_DIR="$GMR_FAIL_DIR" \
+  OUTCOME_FAIL_DIR="$GMR_FAIL_DIR" \
     xargs -0 -P "$JOBS" -I{} "$self" --one {}
 fanout_rc=$?
+# A worker that died without naming a repo (killed, exec failure) still
+# contributes exactly one distinct failure, even if several did so.
+if [ "$fanout_rc" -ne 0 ] && ! outcome_has_failures; then
+  outcome_fail_unnamed "maintenance" "$fanout_rc"
+fi
 maint_failed_repos=()
-if compgen -G "$GMR_FAIL_DIR/fail.*" >/dev/null; then
-  mapfile -t maint_failed_repos < <(cat "$GMR_FAIL_DIR"/fail.* | sort -u)
-  rm -f "$GMR_FAIL_DIR"/fail.*
+unnamed_worker_failure=0
+for _outcome_key in "${!OUTCOME_FAILURES[@]}"; do
+  case "$_outcome_key" in
+    __outcome_unnamed_worker_death__) unnamed_worker_failure=1 ;;
+    registration:*) : ;;
+    *) maint_failed_repos+=("$_outcome_key") ;;
+  esac
+done
+if [ "${#maint_failed_repos[@]}" -gt 1 ]; then
+  mapfile -t maint_failed_repos < <(printf '%s\n' "${maint_failed_repos[@]}" | sort -u)
 fi
-rmdir "$GMR_FAIL_DIR" 2>/dev/null || true
 maint_failures=${#maint_failed_repos[@]}
-if [ "$maint_failures" -eq 0 ] && [ "$fanout_rc" -ne 0 ]; then
-  # A worker died without naming a repo (killed, exec failure): the
-  # fan-out failure itself must still reach the exit code.
-  maint_failures=1
-  echo "git-maintain-repos: maintenance worker fan-out failed with exit $fanout_rc" >&2
-fi
+[ "$unnamed_worker_failure" -eq 0 ] || maint_failures=$((maint_failures + 1))
+rm -rf "$GMR_FAIL_DIR"
 
 # Per-repo registration (#1327): usage and --dry-run have always promised
 # `git maintenance register` + gc.auto 0 + maintenance.auto false per repo,
@@ -579,20 +586,20 @@ if [ "$REGISTER" = "1" ]; then
   mc="$HOME/.config/git/maintenance.config"
   mkdir -p "$(dirname "$mc")"
   for repo in "${repos[@]}"; do
-    repo_failed=0
     if ! git -C "$repo" maintenance register --config-file "$mc" 2>/dev/null; then
-      echo "git-maintain-repos: registration failed for $repo: git maintenance register" >&2
-      repo_failed=1
+      outcome_fail "registration:$repo" "registration" "$repo: git maintenance register" 1
     fi
     if ! git -C "$repo" config gc.auto 0 2>/dev/null; then
-      echo "git-maintain-repos: registration failed for $repo: git config gc.auto 0" >&2
-      repo_failed=1
+      outcome_fail "registration:$repo" "registration" "$repo: git config gc.auto 0" 1
     fi
     if ! git -C "$repo" config maintenance.auto false 2>/dev/null; then
-      echo "git-maintain-repos: registration failed for $repo: git config maintenance.auto false" >&2
-      repo_failed=1
+      outcome_fail "registration:$repo" "registration" "$repo: git config maintenance.auto false" 1
     fi
-    register_failures=$((register_failures + repo_failed))
+  done
+  # One distinct registration failure per repo, however many of its steps
+  # failed -- the accumulator's item keying supplies the dedupe.
+  for _outcome_key in "${!OUTCOME_FAILURES[@]}"; do
+    case "$_outcome_key" in registration:*) register_failures=$((register_failures + 1)) ;; esac
   done
   if [ "$register_failures" -gt 0 ]; then
     echo "git-maintain-repos: registration failed for $register_failures of ${#repos[@]} repo(s)" >&2
