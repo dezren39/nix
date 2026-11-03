@@ -13,6 +13,12 @@
 #                          --prune-unknown-scratch (the no-deletion guarantee)
 #   job definition      -> StartCalendarInterval present, RunAtLoad false,
 #                          report log under ~/Library/Logs
+#   real derivation     -> the tools directory rebuilt from the derivation's
+#                          own cp/chmod lines carries git-discover-repos, and
+#                          the REAL store-copied clean.sh in the report shape
+#                          (--dry-run --no-git-maintenance) reaches the
+#                          opencode scratch section and exits 0 (#1436: the
+#                          stub cases cannot catch an incomplete derivation)
 #
 # Run: bash opencode-prune-report.test.sh (exit 0 = all passed)
 set -u
@@ -99,6 +105,54 @@ check "RunAtLoad is false" "$(grep -q 'RunAtLoad = false;' opencode-prune-report
 check "report log under Library/Logs" "$(grep -q 'Library/Logs/opencode-prune-report.log' opencode-prune-report.nix; echo $?)"
 # Comment lines legitimately mention --apply; only executable lines matter.
 check "extracted report never passes --apply" "$(! grep -v '^[[:space:]]*#' "$work/report.sh" | grep -q -- '--apply'; echo $?)"
+
+# --- the real tools derivation, not stubs ----------------------------------
+# Rebuild the tools directory from the derivation's own cp/chmod lines in
+# opencode-prune-report.nix, so this test tracks the derivation rather than
+# a hand-maintained file list: if the derivation stops copying a sibling
+# clean.sh needs, the store copy built here loses it too and the real run
+# below fails exactly like the scheduled report did.
+python3 - "$work/store-tools" <<'PYEOF'
+import os, re, sys
+out = sys.argv[1]
+src = open("opencode-prune-report.nix").read()
+m = re.search(r'runCommandLocal "opencode-prune-report-tools".*?\n  \'\';', src, re.S)
+if not m:
+    sys.exit("could not extract tools derivation from opencode-prune-report.nix")
+block = m.group(0)
+copies = re.findall(r"cp \$\{\./([^}]+)\} \$out/(\S+)", block)
+if not copies:
+    sys.exit("tools derivation has no cp lines")
+for src_rel, dst_rel in copies:
+    dst = os.path.join(out, dst_rel)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(src_rel, "rb") as f:
+        data = f.read()
+    with open(dst, "wb") as f:
+        f.write(data)
+for chmod_line in re.findall(r"chmod \+x ([^\n]+)", block):
+    for tok in chmod_line.split():
+        if tok.startswith("$out/"):
+            os.chmod(os.path.join(out, tok[5:]), 0o755)
+PYEOF
+check "tools derivation file list extracted" "$?"
+[ -x "$work/store-tools/git-discover-repos" ]
+check "store tools carry an executable git-discover-repos (#1436)" "$?"
+# The nix build sandbox has no /usr/bin/env, so point the copied
+# executables' shebangs at this bash for the direct exec below; a real
+# store copy runs on a system where /usr/bin/env resolves normally.
+for f in "$work/store-tools"/*; do
+  if [ -f "$f" ] && head -1 "$f" | grep -q '^#!/usr/bin/env'; then
+    sed -i "1s|^#!/usr/bin/env bash|#!$(command -v bash)|" "$f"
+  fi
+done
+mkdir -p "$work/real-home/.local/share/opencode/tmp/opencode" "$work/var-folders"
+env HOME="$work/real-home" VAR_FOLDERS_ROOT="$work/var-folders" \
+  bash "$work/store-tools/clean.sh" --dry-run --no-git-maintenance > "$work/real.out" 2>&1
+rc=$?
+[ "$rc" -eq 0 ]; check "real store-copied clean.sh exits 0 in the report shape" "$?"
+grep -q 'opencode scratch dirs' "$work/real.out"
+check "real clean.sh reaches the opencode scratch section" "$?"
 
 echo
 if [ "$failures" -eq 0 ]; then

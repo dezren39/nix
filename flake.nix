@@ -995,18 +995,28 @@ rec {
         # pruners -- both invoked, clean.sh gets --dry-run and
         # --no-git-maintenance, nothing ever gets --apply or
         # --prune-unknown-scratch, and one pruner failing does not hide the
-        # other's report.
+        # other's report. #1436: it also rebuilds the tools derivation's
+        # store layout from the derivation's own cp/chmod lines and drives
+        # the REAL store-copied clean.sh against a scratch HOME, so an
+        # incomplete derivation (a missing git-discover-repos cost the
+        # scheduled report a fatal 127 before the scratch section) fails
+        # here instead of on the Mac.
         opencode-prune-report-tests =
           pkgs.runCommandLocal "opencode-prune-report-tests"
             {
               nativeBuildInputs = [
                 pkgs.bash
+                pkgs.bc
+                pkgs.git
                 pkgs.python3
               ];
               src = inputs.self;
             }
             ''
               cp $src/opencode-prune-report.nix $src/opencode-prune-report.test.sh ./
+              cp $src/clean.sh $src/opencode-db-backup-prune.sh $src/git-discover-repos $src/git-maintain-repos $src/var-folders-clean.sh $src/casks.nix $src/masApps.nix ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
               chmod u+w ./opencode-prune-report.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
