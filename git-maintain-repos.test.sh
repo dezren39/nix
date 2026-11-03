@@ -52,6 +52,31 @@ run() { # run <args...> — sets OUT, ERR, STATUS
 }
 
 snapshot() { find "$VALID" "$HOME" | sort; }
+
+# ─── git stub for the scheduler install step (#1402) ───────────────
+# `git maintenance start` is platform machinery (launchd on macOS,
+# systemd/cron elsewhere) and fails outright in some test environments
+# (e.g. outside a repo, or with no user scheduler) -- an environment
+# fact, not a driver fact. A stub on PATH controls just that one step
+# for the whole suite: it succeeds unless GIT_STUB_MAINT_START_RC says
+# otherwise, and delegates every other git call to the real git.
+STUB_DIR="$TMP_ROOT/git-stub"
+mkdir -p "$STUB_DIR"
+REAL_GIT="$(command -v git)"
+cat > "$STUB_DIR/git" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = "maintenance" ] && [ "\${2:-}" = "start" ]; then
+  if [ "\${GIT_STUB_MAINT_START_RC:-0}" != "0" ]; then
+    echo "stub git: maintenance start failed" >&2
+    exit "\$GIT_STUB_MAINT_START_RC"
+  fi
+  exit 0
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$STUB_DIR/git"
+export PATH="$STUB_DIR:$PATH"
+
 BEFORE="$(snapshot)"
 
 # ─── Flag-shaped values are rejected at parse time ─────────────────────
@@ -367,6 +392,55 @@ esac
 run --no-system --path "$FAILROOT/good" --quick --no-register
 [ "$STATUS" -eq 0 ] || fail "driver on healthy repo exited $STATUS (stderr: $ERR)"
 echo "ok: driver on healthy repo exits 0"
+
+# ─── Scheduler install failure is named and changes the exit (#1402) ──
+# ensure_scheduler used to run `git maintenance start 2>/dev/null` and
+# return 0 unconditionally, so a failed scheduler install looked exactly
+# like success in both --system and full scopes. A git stub on PATH
+# controls that one step: every other git call delegates to the real git.
+# Uses the git stub installed near the top of this suite (see #1402
+# stub block): GIT_STUB_MAINT_START_RC controls the install step.
+export HOME="$TMP_ROOT/home-sched"
+mkdir -p "$HOME"
+
+# Failing stub, --system: git's own error is not discarded, the step is
+# named on stderr, and the run exits non-zero.
+export GIT_STUB_MAINT_START_RC=128
+run --system
+[ "$STATUS" -ne 0 ] || fail "scheduler-failure --system run exited 0"
+case "$ERR" in
+  *"stub git: maintenance start failed"*"scheduler install failed: git maintenance start"*) echo "ok: failed maintenance start named on stderr, git error preserved" ;;
+  *) fail "scheduler failure did not name the step on stderr (got: $ERR)" ;;
+esac
+case "$OUT" in
+  *"scheduler:"*) echo "ok: scheduler report still printed on the failure path" ;;
+  *) fail "scheduler failure run did not print the scheduler report (got: $OUT)" ;;
+esac
+
+# Succeeding stub, --system: unchanged control output, exit 0.
+export GIT_STUB_MAINT_START_RC=0
+run --system
+[ "$STATUS" -eq 0 ] || fail "scheduler-success --system run exited $STATUS (stderr: $ERR)"
+case "$OUT" in
+  *"scheduler: 0 launchd agents, 0 repos registered"*) echo "ok: successful maintenance start keeps the unchanged scheduler line, exits 0" ;;
+  *) fail "scheduler success run changed the scheduler line (got: $OUT)" ;;
+esac
+
+# Full scope: a failing scheduler install drives a non-zero exit even
+# when registration and per-repo maintenance over the fixture succeed.
+export HOME="$TMP_ROOT/home"
+export GIT_STUB_MAINT_START_RC=128
+run --path "$REG" --quick
+[ "$STATUS" -ne 0 ] || fail "full-scope run with failing maintenance start exited 0"
+case "$ERR" in
+  *"scheduler install failed: git maintenance start"*) echo "ok: full-scope scheduler failure named and exits non-zero" ;;
+  *) fail "full-scope scheduler failure did not name the step on stderr (got: $ERR)" ;;
+esac
+export GIT_STUB_MAINT_START_RC=0
+run --path "$REG" --quick
+[ "$STATUS" -eq 0 ] || fail "full-scope control run exited $STATUS (stderr: $ERR)"
+echo "ok: full-scope control run exits 0"
+unset GIT_STUB_MAINT_START_RC
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-maintain-repos flag-shaped-value checks passed"
