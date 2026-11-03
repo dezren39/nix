@@ -797,6 +797,7 @@ def _normalize_vcs_url(url: str) -> str:
     return u + (qsep + query if qsep else "")
 
 
+@functools.lru_cache(maxsize=512)
 def _normalize_ref(ref: str) -> str:
     """Canonicalize a ref spelling for grouping (#555).
 
@@ -810,6 +811,7 @@ def _normalize_ref(ref: str) -> str:
     return ref
 
 
+@functools.lru_cache(maxsize=512)
 def _canonicalize_url_authority(url: str) -> str:
     """Canonicalize ONLY the scheme + authority of a URL for grouping (#611).
 

@@ -37,3 +37,9 @@
 **Learning:** `follows_exists_in_content` and `follows_path_has_any_target` are called repeatedly during deduplication, merge, and flattening proposal checks. In uncached line loops, processing every non-comment line through whitespace collapsing and attribute unquoting wastes CPU time on irrelevant lines; adding an early check (`"follows" not in stripped`) bypasses all normalization overhead for lines that cannot possibly match. Furthermore, caching the pure query results via `@functools.lru_cache` on inner functions accepting `tuple[str, ...]` yields a ~35x speedup on repeated lookups while preserving list argument compatibility for callers.
 
 **Action:** Add fast substring checks in line-iteration loops to reject irrelevant lines before running costly string normalizations, and memoize pure query functions that accept list parameters by wrapping a tuple-based inner function with `@functools.lru_cache`.
+
+## 2026-11-03 - Memoize URL Authority and Git Ref Canonicalization
+
+**Learning:** `source_key` is computed repeatedly across all nodes and candidates during flake-tidy dedup and flattening analysis. While `_normalize_vcs_url` was memoized, `_canonicalize_url_authority` (which parses scheme, authority, IPv6 brackets, ports, and DNS root labels) and `_normalize_ref` (which strips git branch prefixes) were executed unmemoized on every invocation. Caching both pure string functions with `@functools.lru_cache(maxsize=512)` speeds up authority canonicalization by over 68x and ref normalization by ~2.3x.
+
+**Action:** Ensure all pure URL and reference canonicalization helper functions used by graph and grouping keys are decorated with `@functools.lru_cache`.
