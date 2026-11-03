@@ -107,6 +107,10 @@ file_mtime_epoch() {
 #
 # Opt-in via --db-dir so an existing `--dir`-only invocation never starts
 # touching a second tree; the scheduled dry-run recipe passes it.
+# LOOSE_FAILED threads a loose-sweep failure through the dir sweep below
+# (#1426): the loose sweep must not exit before the dir sweep runs, and
+# no later exit-0 path may mask the loose failure as success.
+LOOSE_FAILED=0
 if [ "$DB_DIR_SET" -eq 1 ]; then
   if { [ ! -e "$DB_DIR" ] && [ ! -L "$DB_DIR" ]; }; then
     echo "opencode-db-backup-prune: no database dir at $DB_DIR — no loose backups to prune"
@@ -161,7 +165,7 @@ if [ "$DB_DIR_SET" -eq 1 ]; then
       fi
       if [ "$loose_failed" -gt 0 ]; then
         echo "opencode-db-backup-prune: $loose_failed loose deletion(s) failed" >&2
-        exit 1
+        LOOSE_FAILED=$loose_failed
       fi
     fi
   fi
@@ -171,6 +175,9 @@ if [ -e "$DIR" ] || [ -L "$DIR" ]; then
   [ -d "$DIR" ] || die "backup path is not a directory: $DIR"
 else
   echo "opencode-db-backup-prune: no backup dir at $DIR — nothing to do"
+  if [ "$LOOSE_FAILED" -gt 0 ]; then
+    exit 1
+  fi
   exit 0
 fi
 
@@ -227,6 +234,9 @@ done < <(
 total=${#candidates[@]}
 if [ "$total" -le "$KEEP" ]; then
   echo "opencode-db-backup-prune: $total backup(s) in $DIR, keep=$KEEP — nothing to prune"
+  if [ "$LOOSE_FAILED" -gt 0 ]; then
+    exit 1
+  fi
   exit 0
 fi
 
@@ -268,6 +278,12 @@ if [ "$APPLY" -eq 1 ]; then
     echo "opencode-db-backup-prune: $failed deletion(s) failed" >&2
     exit 1
   fi
+  if [ "$LOOSE_FAILED" -gt 0 ]; then
+    exit 1
+  fi
 else
   echo "opencode-db-backup-prune: dry run — $listed of $total backup(s) in $DIR would be deleted (kept newest $KEEP); re-run with --apply to delete"
+  if [ "$LOOSE_FAILED" -gt 0 ]; then
+    exit 1
+  fi
 fi
