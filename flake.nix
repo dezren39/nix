@@ -966,6 +966,30 @@ rec {
               bash ./opencode-tmp-guard.test.sh
               touch $out
             '';
+        # #1432: exercise the real OpenChamber deploy activation body with a
+        # missing-after-poll password, unchanged-password control, and real
+        # password-rotation fixture. The missing path must fail before key
+        # computation or any service/marker mutation.
+        openchamber-deploy-tests =
+          pkgs.runCommandLocal "openchamber-deploy-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gawk
+                pkgs.gnugrep
+                pkgs.python3
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/openchamber.nix $src/openchamber-deploy.test.sh ./
+              chmod u+w ./openchamber-deploy.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./openchamber-deploy.test.sh
+              touch $out
+            '';
         # #659: opencode-prune-report.test.sh extracts the real report
         # script from opencode-prune-report.nix and drives it against stub
         # pruners -- both invoked, clean.sh gets --dry-run and
