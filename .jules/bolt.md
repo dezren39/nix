@@ -43,3 +43,9 @@
 **Learning:** `analyze_flatten` iterated over every candidate transitive input node and executed an inner loop over all `root_inputs`, repeatedly recomputing `source_key(rdata)` and `locked_hash(rdata)` on every iteration (an O(M × R) anti-pattern). Precomputing root input source keys and hashes once into sets reduces the inner loop to an O(1) set lookup. Additionally, memoizing `_canonicalize_url_authority` via `@functools.lru_cache` yields an ~18x speedup on repeated URL authority canonicalizations.
 
 **Action:** When matching items against a reference collection in graph/lock analysis, precompute grouping keys and hashes into sets upfront instead of recomputing them within nested loops, and memoize string normalization utilities that parse URL authorities.
+
+## 2026-11-03 - Memoize URL Authority and Git Ref Canonicalization
+
+**Learning:** `source_key` is computed repeatedly across all nodes and candidates during flake-tidy dedup and flattening analysis. While `_normalize_vcs_url` was memoized, `_canonicalize_url_authority` (which parses scheme, authority, IPv6 brackets, ports, and DNS root labels) and `_normalize_ref` (which strips git branch prefixes) were executed unmemoized on every invocation. Caching both pure string functions with `@functools.lru_cache(maxsize=512)` speeds up authority canonicalization by over 68x and ref normalization by ~2.3x.
+
+**Action:** Ensure all pure URL and reference canonicalization helper functions used by graph and grouping keys are decorated with `@functools.lru_cache`.
