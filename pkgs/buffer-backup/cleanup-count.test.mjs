@@ -1,4 +1,5 @@
-// Fixture test for cleanupCount in src/extension.ts (#1002, #1014, #1211).
+// Fixture test for cleanupCount in src/extension.ts (#1002, #1014, #1211,
+// #1375).
 //
 // Run: node pkgs/buffer-backup/cleanup-count.test.mjs
 //
@@ -53,9 +54,10 @@ const factory = new Function(
    ${stripTypes(extractFunction("rmEmpty"))}
    ${stripTypes(extractFunction("cleanupSize"))}
    ${stripTypes(extractFunction("cleanupCount"))}
-   return { listBackups, cleanupSize, cleanupCount };`,
+   ${stripTypes(extractFunction("cleanupAge"))}
+   return { listBackups, cleanupSize, cleanupCount, cleanupAge };`,
 );
-const { listBackups, cleanupSize, cleanupCount } = factory(fs, path);
+const { listBackups, cleanupSize, cleanupCount, cleanupAge } = factory(fs, path);
 
 function fixture(count, sizeBytes = 16) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "buffer-backup-test-"));
@@ -222,6 +224,48 @@ function removeFixture(dir, oldDay) {
   assert.strictEqual(entries[0].name, "f19.txt", "newest file must survive");
   fs.rmSync(dir, { recursive: true, force: true });
   console.log("pass: cleanupSize with rollout > max leaves the newest backup (#1211)");
+}
+
+// 11. All backups expired, cleanupAge (#1375): the fixture mtimes are
+//     2026-01-01, so with maxAgeSec = 3600 every file is past the
+//     cutoff. The unguarded pass deleted all of them; the #1211-style
+//     floor leaves exactly the newest backup.
+{
+  const dir = fixture(5);
+  cleanupAge({ backupDir: dir, maxAgeSec: 3600 });
+  assert.deepStrictEqual(remainingNames(dir), ["f04.txt"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupAge with every backup expired leaves the newest backup (#1375)");
+}
+
+// 12. A single expired backup, cleanupAge (#1375): the newest-backup
+//     floor also protects a store with exactly one entry.
+{
+  const dir = fixture(1);
+  cleanupAge({ backupDir: dir, maxAgeSec: 3600 });
+  assert.deepStrictEqual(remainingNames(dir), ["f00.txt"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupAge leaves a lone expired backup standing (#1375)");
+}
+
+// 13. Mixed ages, cleanupAge (#1375): mtimes relative to now -- two
+//     expired (3h, 2h old) and one fresh (1 minute old), maxAgeSec
+//     3600. Only the expired non-newest entries are deleted.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "buffer-backup-test-"));
+  const day = path.join(dir, "2026-01-01");
+  fs.mkdirSync(day);
+  const nowSec = Date.now() / 1000;
+  const ages = [["old1.txt", 3 * 3600], ["old2.txt", 2 * 3600], ["fresh.txt", 60]];
+  for (const [name, age] of ages) {
+    const full = path.join(day, name);
+    fs.writeFileSync(full, "x".repeat(16));
+    fs.utimesSync(full, nowSec - age, nowSec - age);
+  }
+  cleanupAge({ backupDir: dir, maxAgeSec: 3600 });
+  assert.deepStrictEqual(remainingNames(dir), ["fresh.txt"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupAge deletes only the expired non-newest backups (#1375)");
 }
 
 console.log("cleanup-count.test.mjs: all assertions passed");

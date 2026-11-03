@@ -247,7 +247,15 @@ function cleanupAge(cfg: Config): void {
     return;
   }
   const cutoff = Date.now() - cfg.maxAgeSec * 1000;
-  for (const e of listBackups(cfg.backupDir)) {
+  const entries = listBackups(cfg.backupDir);
+  // Floor at the newest backup (#1375), mirroring the #1211 floors in
+  // cleanupSize/cleanupCount: listBackups is sorted oldest first, so
+  // the last entry is the newest and is never deleted here. activate()
+  // runs this at startup, before the initial backup, so an absence
+  // longer than maxAge would otherwise empty the store -- deleting
+  // the only recovery copy of a lost untitled buffer moments before
+  // any replacement backup exists. The newest backup always survives.
+  for (const e of entries.slice(0, -1)) {
     if (e.mtimeMs < cutoff) {
       try {
         fs.unlinkSync(e.full);
