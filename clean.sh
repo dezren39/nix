@@ -390,8 +390,6 @@ brew_cleanup() {
   if [ -z "$b" ]; then info "brew not installed, skipping"; return 0; fi
   echo "🍺 brew cleanup ($b, prefix $("$b" --prefix 2>/dev/null))"
   "$b" cleanup --prune=all || warn "brew cleanup failed"
-  # Casks whose app bundle is gone leave Caskroom metadata and broken symlinks.
-  "$b" cleanup --prune=all --quiet 2>/dev/null || true
 }
 
 human_size() {
