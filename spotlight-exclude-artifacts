@@ -49,14 +49,19 @@ WHY
   seconds over ~28 GB / ~536k files.
 
 RELATIONSHIP TO THE NIX CONFIG
-  configuration.nix already creates the static markers during activation --
-  with plain `touch`, so they are REAL root-owned files, not read-only
-  /nix/store symlinks. --system therefore re-asserts the same list rather than
-  owning it: it is a safety net for paths created since the last switch, and
-  for anything a cache-clearing run (./clean) deleted. It should normally
+  STATIC_PATHS below is the single source of truth for the static markers:
+  there is no second list to keep in sync. configuration.nix re-asserts it
+  during activation by running this script --system (as root and as user)
+  from a /nix/store copy, so the markers are REAL files created by mark()'s
+  plain `touch`, not read-only /nix/store symlinks. --system is therefore
+  also a safety net for paths created since the last switch, and for
+  anything a cache-clearing run (./clean) deleted. It should normally
   report everything as already present.
 
-  Keep the STATIC_PATHS list below in sync with configuration.nix.
+  Sole exception: configuration.nix separately touches
+  /nix/.metadata_never_index alongside its mdutil handling of the /nix
+  volume; /nix is in STATIC_PATHS too, so both passes write the same
+  marker file.
 
 ROOT
   Run under sudo to cover /var/root/*. Those paths are mode 700, so an
@@ -64,7 +69,8 @@ ROOT
 EOF
 }
 
-# Mirrors the marker loop in configuration.nix. Root-only entries are skipped
+# The static list configuration.nix activation re-asserts by running this
+# script --system (see RELATIONSHIP above). Root-only entries are skipped
 # automatically when unprivileged, because [ -d ] fails on mode-700 dirs.
 STATIC_PATHS=(
   "$HOME/.nix-defexpr"
