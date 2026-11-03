@@ -375,6 +375,57 @@ out="$(bash "$PRUNE" --dir "$WORK/no-such-dir" 2>&1)"; rc=$?
 printf '%s' "$out" | grep -q "loose" && fail "loose sweep ran without --db-dir: $out"
 ok "loose sweep is opt-in; --dir-only invocations are unchanged"
 
+# --- loose failure must not skip the dir sweep (#1426) --------------------
+# A selective rm shim fails only loose (.bak-*) deletions and passes dir
+# deletions through to the real rm. The combined --apply run must still
+# run the timestamp-dir sweep to completion, report the loose failure,
+# and exit 1; the dir sweep's early exit-0 paths (missing backup dir,
+# nothing to prune) must likewise not mask a loose failure as success.
+LOOSE_FAIL_SHIM="$WORK/loose-fail-shim"; mkdir -p "$LOOSE_FAIL_SHIM"
+REAL_RM="$(command -v rm)"
+cat > "$LOOSE_FAIL_SHIM/rm" <<SHIM_EOF
+#!/bin/sh
+for a in "\$@"; do
+  case "\$a" in
+    *opencode.db.bak-*) echo "rm: cannot remove loose (shimmed failure)" >&2; exit 1 ;;
+  esac
+done
+exec "$REAL_RM" "\$@"
+SHIM_EOF
+chmod +x "$LOOSE_FAIL_SHIM/rm"
+make_loose3() {
+  local d="$1"; mkdir -p "$d"; echo db > "$d/opencode.db"
+  local n
+  for n in a b c; do echo copy > "$d/opencode.db.bak-$n"; done
+  touch -t 202601010000 "$d/opencode.db.bak-a"
+  touch -t 202602010000 "$d/opencode.db.bak-b"
+  touch -t 202603010000 "$d/opencode.db.bak-c"
+}
+L2="$WORK/loose-combined"; make_loose3 "$L2"
+B="$WORK/combined"; make_tree "$B"
+out="$(PATH="$LOOSE_FAIL_SHIM:$PATH" bash "$PRUNE" --dir "$B" --db-dir "$L2" --keep 2 --apply 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] || fail "combined loose-failure run exited $rc, expected 1: $out"
+printf '%s' "$out" | grep -q "loose deletion(s) failed" \
+  || fail "combined run did not report the loose failure: $out"
+printf '%s' "$out" | grep -q "deleted: $B/20260101T000000" \
+  || fail "combined run did not run the dir sweep: $out"
+[ "$(listing "$B")" = "20260401T000000 20260501T000000 loose-file.txt not-a-backup " ] \
+  || fail "combined run left wrong backup tree: $(listing "$B")"
+[ -f "$L2/opencode.db.bak-a" ] || fail "combined run deleted the loose copy despite the shim"
+ok "loose failure does not skip the dir sweep; combined run exits 1"
+
+out="$(PATH="$LOOSE_FAIL_SHIM:$PATH" bash "$PRUNE" --dir "$WORK/no-such-dir-1426" --db-dir "$L2" --keep 2 --apply 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] || fail "loose failure with missing backup dir exited $rc, expected 1: $out"
+ok "loose failure is not masked by the missing-backup-dir exit-0 path"
+
+B="$WORK/combined-nothing"; mkdir -p "$B"
+for d in 20260101T000000 20260201T000000; do mkdir -p "$B/$d"; echo fixture > "$B/$d/opencode.db"; done
+out="$(PATH="$LOOSE_FAIL_SHIM:$PATH" bash "$PRUNE" --dir "$B" --db-dir "$L2" --keep 2 --apply 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] || fail "loose failure with nothing to prune exited $rc, expected 1: $out"
+printf '%s' "$out" | grep -q "nothing to prune" \
+  || fail "nothing-to-prune run did not report nothing to prune: $out"
+ok "loose failure is not masked by the nothing-to-prune exit-0 path"
+
 if [ "$failures" -gt 0 ]; then
   echo "opencode-db-backup-prune.test: $failures failure(s)" >&2
   exit 1
