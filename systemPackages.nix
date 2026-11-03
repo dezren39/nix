@@ -161,7 +161,6 @@ in
       # OpenChamber's server CLI. The server itself runs as the openchamber
       # launchd agent and the desktop app is installed by openchamber.nix.
       ocPkgs.openchamber
-      cloudflared
       # The MCP gateway (source: developing-today/code's pkgs/mcpx, built
       # from the pinned mcpx-src input). Its daemon runs at login from the
       # mcpx launchd agent in configuration.nix; the CLI reaches it from any shell.
