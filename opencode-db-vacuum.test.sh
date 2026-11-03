@@ -186,8 +186,13 @@ fi
 real_sqlite3="$(command -v sqlite3)"
 mk_count_fail_shim() { # $1 = shim dir, $2 = URI fragment whose COUNTs fail
   mkdir -p "$1"
+  # The shebang must name a real interpreter: /usr/bin/env does not exist in
+  # the nix build sandbox (#978, #1408), so the shim died with "bad
+  # interpreter" and both count-failure scenarios failed for the wrong
+  # reason. patchShebangs cannot help here because the file only exists at
+  # run time. Expand bash's resolved path when the shim is generated.
   cat >"$1/sqlite3" <<EOF
-#!/usr/bin/env bash
+#!$(command -v bash)
 for a in "\$@"; do
   case "\$a" in
     *"SELECT COUNT(*) FROM"*)
