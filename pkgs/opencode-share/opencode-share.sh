@@ -137,6 +137,11 @@ check_deps() {
   [[ -d "/Library/Filesystems/macfuse.fs" ]] && macfuse_found=true
   [[ -f "/usr/local/lib/libfuse.dylib" ]] && macfuse_found=true
   [[ -f "/opt/homebrew/lib/libfuse.dylib" ]] && macfuse_found=true
+  # Test-only seam for environments that cannot create one of the real
+  # absolute-path markers. With the variable unset, production checks above
+  # remain unchanged.
+  local test_marker="${OPENCODE_SHARE_TEST_MACFUSE_MARKER:-}"
+  [[ -n "$test_marker" && -e "$test_marker" ]] && macfuse_found=true
   if ! $macfuse_found; then
     missing+=("macFUSE — install via: brew install --cask macfuse (reboot required)")
   fi
