@@ -262,6 +262,42 @@
         "type": "github"
       }
     },
+    "fleet": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_2"
+      },
+      "locked": {
+        "lastModified": 1793665075,
+        "narHash": "sha256-xa5Wy5Y+Oag+7x5iq1SEfoT/8Cp+t9gNItErSr504HM=",
+        "owner": "dezren39",
+        "repo": "fleet",
+        "rev": "082bd9e78bcac374d0b3bec89ec1ee9acd4386d1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "dezren39",
+        "repo": "fleet",
+        "type": "github"
+      }
+    },
+    "fleet_2": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_3"
+      },
+      "locked": {
+        "lastModified": 1793665075,
+        "narHash": "sha256-xa5Wy5Y+Oag+7x5iq1SEfoT/8Cp+t9gNItErSr504HM=",
+        "owner": "dezren39",
+        "repo": "fleet",
+        "rev": "082bd9e78bcac374d0b3bec89ec1ee9acd4386d1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "dezren39",
+        "repo": "fleet",
+        "type": "github"
+      }
+    },
     "git-hooks-nix": {
       "inputs": {
         "flake-compat": [
@@ -494,11 +530,11 @@
     "mcpx-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1793505286,
-        "narHash": "sha256-Wqln2GGYFcoN6CbZo+sUj7ZLZSqXkCnM6Shf4hzE450=",
+        "lastModified": 1793697745,
+        "narHash": "sha256-qnkwwNhP9WfZdJ4SLjd3oADqrNSPcHMWODMwt/4Hf1w=",
         "owner": "developing-today",
         "repo": "code",
-        "rev": "6e7f8fcf7498eda8f8df42d95b313198c71308c0",
+        "rev": "282064c54be3b3542a9eedd0c1a1de99d2968bbf",
         "type": "github"
       },
       "original": {
@@ -730,33 +766,33 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1791594108,
-        "narHash": "sha256-XK4KceonkwD8LuMAt/vNrz982mXJM5jeHAxMwsUXXAQ=",
+        "lastModified": 1793645915,
+        "narHash": "sha256-yRzh4uc8uxFv5+5TROEIH1rUL2FF1/cvfc+uq5JGGHY=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "6510408d147d8c5e6d76043e899e9251756f6a75",
+        "rev": "f9887a8a434bfba06e20dfc77bc8e0628266af84",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixos-unstable",
         "repo": "nixpkgs",
+        "rev": "f9887a8a434bfba06e20dfc77bc8e0628266af84",
         "type": "github"
       }
     },
     "nixpkgs_3": {
       "locked": {
-        "lastModified": 1791487292,
-        "narHash": "sha256-tqM7xDEsaeK1p6VvRygeZ9LkQRpUUkbRT02BHv6hnTM=",
+        "lastModified": 1793645915,
+        "narHash": "sha256-yRzh4uc8uxFv5+5TROEIH1rUL2FF1/cvfc+uq5JGGHY=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "8edc0c72e3a38faf5434e40d1f19431125fe4b30",
+        "rev": "f9887a8a434bfba06e20dfc77bc8e0628266af84",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
         "repo": "nixpkgs",
+        "rev": "f9887a8a434bfba06e20dfc77bc8e0628266af84",
         "type": "github"
       }
     },
@@ -785,17 +821,20 @@
     },
     "openchamber": {
       "inputs": {
-        "nixpkgs": "nixpkgs_2",
-        "opencode": [
-          "opencode"
-        ]
+        "fleet": "fleet",
+        "nixpkgs": [
+          "openchamber",
+          "fleet",
+          "nixpkgs"
+        ],
+        "opencode": "opencode"
       },
       "locked": {
-        "lastModified": 1793045511,
-        "narHash": "sha256-HUHTO48F4qqrwCRyayfeHuyH2EFHtYea6AO/TnFJOHw=",
+        "lastModified": 1793698144,
+        "narHash": "sha256-ypUBO8fCwxEecOUKaNWPItcGe2jvKt/vgVJzO+wb8vY=",
         "owner": "developing-today",
         "repo": "openchamber",
-        "rev": "89d8b085cad8c70b136707f99d2d6944e2ef0807",
+        "rev": "392c3e2c69947c63b9dc7888921ac9ee5127468a",
         "type": "github"
       },
       "original": {
@@ -806,14 +845,19 @@
     },
     "opencode": {
       "inputs": {
-        "nixpkgs": "nixpkgs_3"
+        "fleet": "fleet_2",
+        "mcpx-src": "mcpx-src",
+        "nixpkgs": [
+          "openchamber",
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1793044313,
-        "narHash": "sha256-eid4MnEU1StCKp99gpQZOTxBKZZOFOkNVMW5cGd3sec=",
+        "lastModified": 1793697933,
+        "narHash": "sha256-Nxc0aJv1QAN1sneET/YbYo2w/hKnfbarQ1+/ddJSXCI=",
         "owner": "developing-today",
         "repo": "opencode",
-        "rev": "61c35a02284aeba8a240b2553b7f8daee0796416",
+        "rev": "9679be7a1d9abdaa6b107d02bffb53415bdee2a5",
         "type": "github"
       },
       "original": {
@@ -850,7 +894,6 @@
         "homebrew-services": "homebrew-services",
         "just": "just",
         "mac-app-util": "mac-app-util",
-        "mcpx-src": "mcpx-src",
         "nix": "nix",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs",
@@ -883,7 +926,6 @@
         "nixpkgs-terraform": "nixpkgs-terraform",
         "nur": "nur",
         "openchamber": "openchamber",
-        "opencode": "opencode",
         "rust-analyzer-src": "rust-analyzer-src",
         "sidepulse-src": "sidepulse-src",
         "sops-nix": "sops-nix",
