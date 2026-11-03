@@ -666,8 +666,8 @@ BC_DIR="$TMP_ROOT/brew-cleanup"
 mkdir -p "$BC_DIR"
 export BREW_STUB_LOG="$BC_DIR/invocations.log"
 export BREW_STUB_FAIL=0
-cat > "$BC_DIR/brew" <<'STUB'
-#!/usr/bin/env bash
+printf '#!%s\n' "$(command -v bash)" > "$BC_DIR/brew"
+cat >> "$BC_DIR/brew" <<'STUB'
 echo "$*" >> "$BREW_STUB_LOG"
 [ "${BREW_STUB_FAIL:-0}" = "1" ] && exit 1
 exit 0
