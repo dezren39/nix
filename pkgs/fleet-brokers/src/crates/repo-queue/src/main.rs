@@ -15,7 +15,7 @@ use std::os::unix::net::UnixStream;
 use std::process::exit;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 const QUEUE_BROKER_PORT: u64 = 4801;
 const DEFAULT_QUEUE: &str = "repo-health-code-shadow";
@@ -669,7 +669,9 @@ fn check_telemetry_fields(obj: &Value, source: &str) {
             if !ok {
                 die(
                     2,
-                    &format!("{source}: telemetry field 'cost_usd' must be a non-negative number or null"),
+                    &format!(
+                        "{source}: telemetry field 'cost_usd' must be a non-negative number or null"
+                    ),
                 );
             }
         } else if !matches!(v, Value::String(s) if !s.is_empty()) {
@@ -1303,7 +1305,9 @@ fn atomic_write_json(path: &str, obj: &Value) {
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.is_empty() {
-        eprint("usage: repo-queue <validate|list|enqueue|claim|lane|bind|heartbeat|checkpoint|park|block|cancel|fail|complete|health|signal> ...");
+        eprint(
+            "usage: repo-queue <validate|list|enqueue|claim|lane|bind|heartbeat|checkpoint|park|block|cancel|fail|complete|health|signal> ...",
+        );
         exit(2);
     }
     let sub = argv[0].as_str();

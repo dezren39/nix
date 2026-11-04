@@ -21,7 +21,7 @@ use std::process::Command;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 struct State {
@@ -116,22 +116,24 @@ fn do_refresh(state: &Arc<State>) -> Result<usize, String> {
         let got = Arc::clone(&got);
         let failed = Arc::clone(&failed);
         let token = token.clone();
-        handles.push(std::thread::spawn(move || loop {
-            let i = idx.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            if i >= items.len() {
-                return;
-            }
-            let (id, key) = &items[i];
-            let value = bws_run(&["secret", "get", id, "-o", "json"], &token)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-                .and_then(|v| v.get("value").and_then(|x| x.as_str()).map(str::to_string));
-            match value {
-                Some(v) => {
-                    got.write().unwrap().insert(key.clone(), v);
+        handles.push(std::thread::spawn(move || {
+            loop {
+                let i = idx.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= items.len() {
+                    return;
                 }
-                None => {
-                    failed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let (id, key) = &items[i];
+                let value = bws_run(&["secret", "get", id, "-o", "json"], &token)
+                    .ok()
+                    .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                    .and_then(|v| v.get("value").and_then(|x| x.as_str()).map(str::to_string));
+                match value {
+                    Some(v) => {
+                        got.write().unwrap().insert(key.clone(), v);
+                    }
+                    None => {
+                        failed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                 }
             }
         }));
@@ -203,12 +205,14 @@ fn main() {
     // and a failed refresh keeps the old values).
     {
         let state = Arc::clone(&state);
-        std::thread::spawn(move || loop {
-            match refresh(&state) {
-                Ok(n) => eprintln!("secrets-broker: refreshed {n} secrets"),
-                Err(e) => eprintln!("secrets-broker: refresh failed: {e}"),
+        std::thread::spawn(move || {
+            loop {
+                match refresh(&state) {
+                    Ok(n) => eprintln!("secrets-broker: refreshed {n} secrets"),
+                    Err(e) => eprintln!("secrets-broker: refresh failed: {e}"),
+                }
+                std::thread::sleep(Duration::from_secs(ttl_s));
             }
-            std::thread::sleep(Duration::from_secs(ttl_s));
         });
     }
 

@@ -19,7 +19,7 @@ mod validate;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 const PILOT_REPO: &str = "developing-today/code";
