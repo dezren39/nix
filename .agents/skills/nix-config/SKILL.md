@@ -103,7 +103,7 @@ Where things go:
   servers: `just mcp-login <name>` / `just context7-login`. Smoke test:
   `just mcpx-check`.
 - **OpenCode and OpenChamber come from forks we own** (developing-today/opencode,
-  developing-today/openchamber; `main`; this repo's only developing-today
+  developing-today-forks/openchamber; `main`; this repo's only developing-today
   input is `openchamber`, and opencode is reached as
   `inputs.openchamber.inputs.opencode`). Nothing is patched here: fix the
   fork, push to its `main`, then re-pin

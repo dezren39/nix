@@ -32,7 +32,7 @@ after merging the **login shell's** environment (`packages/electron/main.mjs`,
 applied by `launchctl setenv` during activation and is gone after every reboot.
 Without them the app runs its own server (`0.0.0.0:<random port>`, reachable from
 the LAN) and its own OpenCode beside the agent's. Both OpenChamber servers then
-share `~/.config/openchamber/managed-opencode`. Before developing-today/openchamber
+share `~/.config/openchamber/managed-opencode`. Before developing-today-forks/openchamber
 `93eecbf7b` they killed each other's OpenCode every 30 minutes; see
 [What a deploy does to connections](#what-a-deploy-does-to-connections).
 Check which you have: `lsof -nP -a -p $(ps -axo pid=,comm= | awk '/MacOS\/OpenChamber$/ {print $1}') -iTCP -sTCP:LISTEN`
@@ -257,7 +257,7 @@ the process table.
 - **Fixes:**
   - The login-shell variables (`configuration.nix`), so the app attaches to the
     agent.
-  - developing-today/openchamber `93eecbf7b` and follow-ups (pinned here from
+  - developing-today-forks/openchamber `93eecbf7b` and follow-ups (pinned here from
     `b4c7ec9`): a server never adopts, hands over from or drains an OpenCode
     another live server owns.
   - #663: mcpx updates no longer restart OpenChamber.
