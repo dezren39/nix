@@ -327,7 +327,13 @@ fi
 # 3. Integrity + WAL checkpoint
 # ---------------------------------------------------------------------------
 step "Integrity check"
-integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;' | head -1)"
+# NOTE (#1460): no `| head -1` here. Under pipefail, head exits after the
+# first line; when integrity_check reports many problems the output exceeds
+# the pipe buffer, sqlite3 dies with SIGPIPE, and the script aborts with
+# exit 141 and no verdict. Capture the full result and take the first
+# line in-shell instead.
+integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;')"
+integrity="${integrity%%$'\n'*}"
 note "integrity_check: $integrity"
 [ "$integrity" = "ok" ] || die "integrity check failed -- do NOT vacuum a corrupt database"
 
@@ -371,7 +377,13 @@ new_bytes="$(wc -c <"$COMPACT" | tr -d ' ')"
 note "new size: $(gb "$new_bytes")  (was $(gb "$total_bytes"))"
 
 step "Verifying the compacted copy"
-new_integrity="$(sqlite3 -readonly "file:$(uri_escape_path "$COMPACT")?mode=ro" 'PRAGMA integrity_check;' | head -1)"
+# NOTE (#1460): no `| head -1` here. Under pipefail, head exits after the
+# first line; when integrity_check reports many problems the output exceeds
+# the pipe buffer, sqlite3 dies with SIGPIPE, and the script aborts with
+# exit 141 and no verdict. Capture the full result and take the first
+# line in-shell instead.
+new_integrity="$(sqlite3 -readonly "file:$(uri_escape_path "$COMPACT")?mode=ro" 'PRAGMA integrity_check;')"
+new_integrity="${new_integrity%%$'\n'*}"
 note "integrity_check: $new_integrity"
 [ "$new_integrity" = "ok" ] || die "compacted copy failed integrity check; original untouched at $DB"
 

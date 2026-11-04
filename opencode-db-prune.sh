@@ -928,7 +928,13 @@ fi
 # Apply
 # ---------------------------------------------------------------------------
 step "Integrity check"
-integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;' | head -1)"
+# NOTE (#1460): no `| head -1` here. Under pipefail, head exits after the
+# first line; when integrity_check reports many problems the output exceeds
+# the pipe buffer, sqlite3 dies with SIGPIPE, and the script aborts with
+# exit 141 and no verdict. Capture the full result and take the first
+# line in-shell instead.
+integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;')"
+integrity="${integrity%%$'\n'*}"
 note "integrity_check: $integrity"
 [ "$integrity" = "ok" ] || die "integrity check failed -- refusing to modify a damaged database"
 
@@ -1083,7 +1089,13 @@ sqlite3 "$DB" "DROP TABLE IF EXISTS opencode_db_prune_targets;"
 note "deleted $(commas "$deleted") row(s)"
 
 step "Post-delete verification"
-post_integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;' | head -1)"
+# NOTE (#1460): no `| head -1` here. Under pipefail, head exits after the
+# first line; when integrity_check reports many problems the output exceeds
+# the pipe buffer, sqlite3 dies with SIGPIPE, and the script aborts with
+# exit 141 and no verdict. Capture the full result and take the first
+# line in-shell instead.
+post_integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;')"
+post_integrity="${post_integrity%%$'\n'*}"
 note "integrity_check: $post_integrity"
 if [ "$post_integrity" != "ok" ]; then
   die "integrity check FAILED after delete.
