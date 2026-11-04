@@ -142,6 +142,17 @@ runCommand "service-events"
     # conn.reconnect for an unrelated later start; a fresh drop must.
     import time
     import monitor
+    # Bolt (issue #1464): classify() must return the same roles as the
+    # unfiltered pattern set -- the hint pre-filter may only reject lines
+    # that contain none of the watched substrings, never change a match.
+    assert monitor.classify("/usr/bin/unrelated --serve") is None
+    assert monitor.classify("/Applications/Nix Apps/OpenChamber.app/Contents/MacOS/OpenChamber") == "openchamber-desktop"
+    assert monitor.classify("node /x/openchamber/packages/web/bin/cli.js serve") == "openchamber-server"
+    assert monitor.classify("bun server/index.js") == "openchamber-dev"
+    assert monitor.classify("/x/bin/opencode serve --service") == "opencode-service"
+    assert monitor.classify("/x/bin/opencode serve") == "opencode"
+    assert monitor.classify("/x/bin/mcpx daemon") == "mcpx-daemon"
+    assert monitor.classify("/x/bin/mcpx client") is None
     captured = []
     monitor.append_event = lambda source, event, **f: captured.append((event, f))
     monitor.launchd_jobs = lambda: {}
