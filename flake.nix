@@ -1420,7 +1420,8 @@ rec {
               restart = service.Restart;
               timeoutStopSec = toString service.TimeoutStopSec;
               wantedBy = pkgs.lib.concatStringsSep " " eval.config.systemd.user.services.mcpx.Install.WantedBy;
-              marker = eval.config.systemd.user.services.mcpx.environment.MCPX_TEST_MARKER;
+              marker =
+                if builtins.elem "MCPX_TEST_MARKER=present" service.Environment then "present" else "missing";
               environmentFile = service.EnvironmentFile;
               mcpxConfig = eval.config.home.sessionVariables.MCPX_CONFIG;
               xdgSource = eval.config.xdg.configFile."mcpx/config.json".source;
