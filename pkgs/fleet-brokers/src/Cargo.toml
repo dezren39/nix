@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["crates/secrets-broker", "crates/queue-broker", "crates/repo-queue"]
+
+[profile.release]
+opt-level = 2

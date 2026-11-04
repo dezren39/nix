@@ -300,6 +300,7 @@ rec {
     nixosModules.mcpx = inputs.openchamber.nixosModules.mcpx;
     homeManagerModules.mcpx = inputs.openchamber.homeManagerModules.mcpx;
     darwinModules.mcpx = inputs.openchamber.darwinModules.mcpx;
+    homeManagerModules.fleet-brokers = import ./pkgs/fleet-brokers/home-module.nix;
 
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
@@ -380,6 +381,11 @@ rec {
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
         twg-cli = pkgs.callPackage ./pkgs/twg-cli/package.nix { };
+        # code#5362: the laptop fleet brokers (secrets + queue) and
+        # the repo-queue client, as one workspace package.
+        fleet-brokers = pkgs.callPackage ./pkgs/fleet-brokers/package.nix { };
+        # code#5343: the resident laptop execution agent daemon.
+        laptop-agent = pkgs.callPackage ./pkgs/laptop-agent/package.nix { };
         # mcp-remote and chrome-devtools-mcp, which mcpx.config.nix runs.
         npm-mcp-servers = pkgs.callPackage ./pkgs/npm-mcp-servers { };
         opencode-share = import ./pkgs/opencode-share { inherit pkgs; };
@@ -1444,6 +1450,65 @@ rec {
               [ "$xdgSource" = "$configFile" ] || { echo "xdg config source=$xdgSource is not the rendered config $configFile" >&2; exit 1; }
               jq -e '.daemon.autostart == false and .mcpServers.example.command == "/bin/true" and .mcpServers.example.args == ["mcp"]' "$configFile" > /dev/null \
                 || { echo "rendered config.json mismatch:" >&2; cat "$configFile" >&2; exit 1; }
+              touch $out
+            '';
+        # code#5362: the fleet-brokers home-manager module must render
+        # all three fleet service units pointing at the flake's own packages.
+        fleet-brokers-home-manager-module =
+          let
+            selfPkgs = mkPackages pkgs;
+            eval = inputs.home-manager.lib.homeManagerConfiguration {
+              inherit pkgs;
+              modules = [
+                inputs.self.homeManagerModules.fleet-brokers
+                {
+                  services.fleet-brokers = {
+                    enable = true;
+                    package = selfPkgs.fleet-brokers;
+                    laptopAgentPackage = selfPkgs.laptop-agent;
+                  };
+                  home = {
+                    username = "fleet-test";
+                    homeDirectory = "/home/fleet-test";
+                    stateVersion = "25.11";
+                  };
+                }
+              ];
+            };
+            qb = eval.config.systemd.user.services.queue-broker.Service;
+            sb = eval.config.systemd.user.services.secrets-broker.Service;
+            la = eval.config.systemd.user.services.laptop-agent.Service;
+          in
+          pkgs.runCommandLocal "fleet-brokers-home-manager-module-check"
+            {
+              qbExec = qb.ExecStart;
+              sbExec = sb.ExecStart;
+              laExec = la.ExecStart;
+              wantedBy = pkgs.lib.concatStringsSep " " eval.config.systemd.user.services.queue-broker.Install.WantedBy;
+            }
+            ''
+              case "$qbExec" in
+              *"/bin/queue-broker") ;;
+              *)
+                echo "queue-broker ExecStart wrong: $qbExec" >&2
+                exit 1
+                ;;
+              esac
+              case "$sbExec" in
+              *"/bin/secrets-broker") ;;
+              *)
+                echo "secrets-broker ExecStart wrong: $sbExec" >&2
+                exit 1
+                ;;
+              esac
+              case "$laExec" in
+              *"/bin/laptop-agent") ;;
+              *)
+                echo "laptop-agent ExecStart wrong: $laExec" >&2
+                exit 1
+                ;;
+              esac
+              [ "$wantedBy" = "default.target" ] || { echo "WantedBy=$wantedBy, want default.target" >&2; exit 1; }
               touch $out
             '';
       }
