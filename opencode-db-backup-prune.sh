@@ -224,6 +224,13 @@ while IFS= read -r name; do
 done < <(
   for entry in "$DIR"/*/; do
     [ -d "$entry" ] || continue
+    # A timestamp-named symlink to a directory is not a backup (#1467):
+    # the glob follows it and [ -d ] passes, so without this guard the
+    # symlink is counted as a backup, occupies a --keep slot (weakening
+    # retention by one real backup per symlink), and can itself be
+    # deleted by --apply. The loose sweep above excludes symlinks the
+    # same way ([ -L "$entry" ] && continue).
+    [ -L "${entry%/}" ] && continue
     name="${entry%/}"; name="${name##*/}"
     case "$name" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]) valid_backup_timestamp "$name" && echo "$name" ;;
