@@ -5,20 +5,39 @@ name: buffer-backup renovate bun sync
 # The companion gate (buffer-backup-lock-sync.yml, #998) only CHECKS
 # that bun.lock and package-lock.json agree — it has contents:read and
 # cannot fix anything. Renovate updates package-lock.json (npm) only,
-# so every Renovate bump for this package arrived red and stayed red
-# until a human ran `bun install` in pkgs/buffer-backup and pushed to
-# the Renovate branch by hand (PRs #1049 and #1058 both landed in that
-# state). This workflow is the missing half: on a Renovate PR for this
-# package it regenerates bun.lock and commits it back to the PR
-# branch, then the gate re-runs on the new head and the PR can go
-# green on its own.
+# so every Renovate bump for this package arrived with the locks out
+# of sync and stayed that way until a human ran `bun install` in
+# pkgs/buffer-backup and pushed to the Renovate branch by hand (PRs
+# #1049 and #1058 both landed in that state). This workflow is the
+# missing half: it regenerates bun.lock for eligible Renovate PRs and
+# commits it back to the PR branch.
+#
+# Trigger design (#1480, replacing the #1176 exception): this
+# workflow used to run on the Renovate PR's own pull_request event.
+# PR #1479 removed push/pull_request triggers fleet-wide (Drew's
+# 2026-11-04 ruling: schedule, workflow_dispatch, workflow_call and
+# placement only), which left it dispatch-only while its job guard,
+# concurrency group, checkout ref and commit-back target all still
+# required a pull_request event — every dispatch run skipped its
+# only job and the workflow could never run again. The redesign
+# keeps NO pull_request trigger: an hourly schedule (plus
+# workflow_dispatch) scans open PRs and processes each eligible one
+# as a matrix job. Eligibility comes from the PR object returned by
+# the API — never from github.head_ref or github.event.pull_request,
+# which these triggers cannot produce:
+#   - author is renovate[bot], PR is not a draft, base is main
+#   - head branch is a same-repo renovate/ branch
+#   - changed files include pkgs/buffer-backup/package.json or
+#     pkgs/buffer-backup/package-lock.json
+# A workflow_dispatch may pass pr_number to narrow the scan to one
+# PR (the same eligibility rules still apply); it exists so a single
+# PR can be synced on demand and so the scan is testable.
 #
 # Why a dedicated token: pushes made with the workflow's default
-# GITHUB_TOKEN do not trigger new workflow runs, so a sync commit
-# pushed with it would leave the gate stuck on the stale red head.
-# The commit-back push here uses a dedicated fine-grained PAT stored
-# as the repo Actions secret RENOVATE_BUN_SYNC_TOKEN (secret NAME
-# only — the value lives only in GitHub's secret store):
+# GITHUB_TOKEN do not trigger new workflow runs. The commit-back push
+# here uses a dedicated fine-grained PAT stored as the repo Actions
+# secret RENOVATE_BUN_SYNC_TOKEN (secret NAME only — the value lives
+# only in GitHub's secret store):
 #   - repository access: dezren39/nix only
 #   - permissions: Contents: read and write (nothing else)
 #   - created/owned by Drew; expiry is his call at creation time
@@ -26,52 +45,109 @@ name: buffer-backup renovate bun sync
 # persist-credentials: false; the PAT is used only for the final push,
 # via an explicit remote URL on that one command. If the secret is
 # absent the job fails loudly naming it (see the token step) instead
-# of silently leaving the PR red. Upgrade path: if PAT upkeep ever
-# bites, swap this for a GitHub App installation token minted in-job
-# (same secret-name indirection, short-lived tokens, no user-tied
-# credential) — the rest of the workflow does not change.
+# of silently leaving the PR out of sync. Upgrade path: if PAT upkeep
+# ever bites, swap this for a GitHub App installation token minted
+# in-job (same secret-name indirection, short-lived tokens, no
+# user-tied credential) — the rest of the workflow does not change.
 #
 # Loop safety, two independent guards:
 #   1. The sync commit touches ONLY pkgs/buffer-backup/bun.lock —
-#      never package.json or package-lock.json.
-#   2. Every run starts with check-lock-sync.py: if the locks already
-#      agree the run is a green no-op and commits nothing, so a
-#      re-triggered run on the sync commit's own head cannot loop.
+#      never package.json or package-lock.json, so a sync commit can
+#      never make its own PR (re-)eligible in a new way.
+#   2. Every per-PR job starts with check-lock-sync.py: if the locks
+#      already agree the job is a green no-op and commits nothing,
+#      so a later scan that re-selects the same PR cannot loop.
 #
 # The gate stays a gate: this workflow is Renovate-only (author +
-# branch + same-repo guards below). A hand-made PR that desyncs the
-# lockfiles gets no sync run and still fails buffer-backup-lock-sync.
+# branch + same-repo eligibility above). A hand-made PR that desyncs
+# the lockfiles gets no sync run and still fails
+# buffer-backup-lock-sync when the gate runs.
 
-# Deliberate exception to the main-only trigger policy (#1172, #1176):
-# this workflow is Renovate automation, not a build check — it can only
-# do its job in the context of the Renovate PR it syncs, so it keeps a
-# pull_request trigger (narrowed below to the two lockfile inputs).
 "on":
+  schedule:
+    # Hourly scan for eligible Renovate PRs (see header). Minute 13
+    # avoids the other fleet crons' minutes.
+    - cron: "13 * * * *"
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Only scan this PR number (optional; eligibility rules still apply)"
+        required: false
+        type: string
+
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  # One sync per PR at a time, never cancelled mid-push: a cancelled
-  # run between commit and push would strand the regenerated lock.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  # One scan at a time fleet-wide for this workflow, never cancelled
+  # mid-push: a cancelled run between commit and push would strand
+  # the regenerated lock. Per-PR serialization is on the bun-sync
+  # job below.
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
+  scan:
+    name: find eligible Renovate PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      prs: ${{ steps.scan.outputs.prs }}
+      count: ${{ steps.scan.outputs.count }}
+    steps:
+      - name: Scan open PRs for eligible Renovate buffer-backup PRs
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_FILTER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # Candidates from the PR objects themselves: Renovate
+          # author, non-draft, base main, same-repo renovate/ head
+          # branch. The changed-files test runs per candidate below.
+          candidates=$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" --paginate \
+            --jq '[.[] | select(.user.login == "renovate[bot]" and .draft == false and (.head.ref | startswith("renovate/")) and .head.repo.full_name == "'"${GITHUB_REPOSITORY}"'") | {number, head_ref: .head.ref}]')
+          if [ -n "$PR_FILTER" ]; then
+            candidates=$(printf '%s' "$candidates" | jq --argjson n "$PR_FILTER" '[.[] | select(.number == $n)]')
+          fi
+          prs='[]'
+          for number in $(printf '%s' "$candidates" | jq -r '.[].number'); do
+            files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${number}/files?per_page=100" --paginate --jq '.[].filename')
+            if printf '%s\n' "$files" | grep -qx 'pkgs/buffer-backup/package.json' \
+              || printf '%s\n' "$files" | grep -qx 'pkgs/buffer-backup/package-lock.json'; then
+              prs=$(printf '%s' "$prs" | jq -c --argjson n "$number" --arg ref "$(printf '%s' "$candidates" | jq -r --argjson n "$number" '.[] | select(.number == $n) | .head_ref')" '. + [{number: $n, head_ref: $ref}]')
+              echo "::notice::PR #${number} is eligible for a bun.lock sync."
+            fi
+          done
+          # prs is compact single-line JSON (jq -c above): safe as a
+          # single-line GITHUB_OUTPUT value and for fromJSON in the matrix.
+          echo "prs=${prs}" >> "$GITHUB_OUTPUT"
+          echo "count=$(printf '%s' "$prs" | jq 'length')" >> "$GITHUB_OUTPUT"
+          echo "::notice::Eligible Renovate buffer-backup PRs: $(printf '%s' "$prs" | jq -c '[.[].number]')"
+
   bun-sync:
-    name: regenerate bun.lock
-    if: |
-      github.event.pull_request.user.login == 'renovate[bot]' &&
-      startsWith(github.head_ref, 'renovate/') &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.base.ref == 'main' &&
-      !github.event.pull_request.draft
+    name: regenerate bun.lock (PR #${{ matrix.pr.number }})
+    needs: scan
+    if: needs.scan.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      # Serialize the per-PR jobs: two syncs pushing in parallel buy
+      # nothing, and serial runs keep the push pattern auditable.
+      max-parallel: 1
+      matrix:
+        pr: ${{ fromJSON(needs.scan.outputs.prs) }}
+    concurrency:
+      # One sync per PR at a time, never cancelled mid-push (same
+      # reasoning as the workflow-level group above).
+      group: ${{ github.workflow }}-${{ matrix.pr.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ matrix.pr.head_ref }}
           persist-credentials: false
 
       - name: Check whether the lockfiles already agree
@@ -129,7 +205,7 @@ jobs:
         if: steps.check.outputs.in_sync == 'false'
         env:
           SYNC_TOKEN: ${{ secrets.RENOVATE_BUN_SYNC_TOKEN }}
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: ${{ matrix.pr.head_ref }}
         run: |
           if git diff --quiet -- pkgs/buffer-backup/bun.lock; then
             echo "::notice::bun.lock unchanged by the sync — nothing to commit."
@@ -139,6 +215,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- pkgs/buffer-backup/bun.lock
           git commit -m "chore(buffer-backup): regenerate bun.lock for Renovate bump (#1060)"
-          # Dedicated token (not GITHUB_TOKEN) so this push triggers a
-          # fresh run of the lock-sync gate on the new head.
+          # Dedicated token (not GITHUB_TOKEN) so this push is a real
+          # user push to the Renovate branch, visible in its history.
           git push "https://x-access-token:${SYNC_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"

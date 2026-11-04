@@ -44,12 +44,15 @@ Per-workflow application in this repo:
   holds that value (restored by #1178 after #1172 flipped it to
   `true` without recording the change).
 - `buffer-backup renovate bun sync` — Renovate automation, not a
-  build check: a deliberate exception to the main-only trigger
-  policy, triggered by `pull_request` on the buffer-backup
-  lockfile inputs because it can only act in the context of the
-  Renovate PR it syncs (#1176). It likewise keeps
-  `cancel-in-progress: false` by design — a run is never cancelled
-  mid-push.
+  build check: since #1480 it follows the main-only trigger policy
+  (no `pull_request` trigger; #1479 removed it and the old
+  #1176 exception is retired). An hourly `schedule` scan (plus
+  `workflow_dispatch`, optionally narrowed to one PR) finds open
+  Renovate PRs whose changed files include the buffer-backup
+  lockfile inputs and syncs each one as a matrix job, taking the
+  branch from the PR object — never from a pull_request event.
+  It likewise keeps `cancel-in-progress: false` by design — a
+  run is never cancelled mid-push.
 
 Main tier failures are owned by the remediation chain
 (`main-broken-watcher.yml`, design §5): a failure of any of the
