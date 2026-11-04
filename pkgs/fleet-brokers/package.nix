@@ -24,6 +24,10 @@ rustPlatform.buildRustPackage {
     cmake
   ];
 
+  # secrets-broker's `bws` dependency is supplied by the home-manager
+  # module's `bwsPackage` option (nixpkgs' bws is unfree, so it cannot
+  # be pulled into this package's closure by default).
+
   # No test suite yet; the workspace is verified end-to-end against the
   # live queue instead (code#5362).
   doCheck = false;

@@ -65,7 +65,10 @@ impl State {
             if status >= 300 {
                 return Err(BErr {
                     exit: 3,
-                    msg: format!("secrets broker HTTP {status} for {name}: {}", trim(&text, 200)),
+                    msg: format!(
+                        "secrets broker HTTP {status} for {name}: {}",
+                        trim(&text, 200)
+                    ),
                 });
             }
             let v: Value = serde_json::from_str(&text).map_err(|e| BErr {
@@ -84,7 +87,10 @@ impl State {
         // vault load; retry 503s for up to ~60 s.
         let mut last_err = None;
         for _ in 0..20 {
-            match (get_secret("supabase.muse-dev2.service-role-key"), get_secret("supabase.muse-dev2.project-url")) {
+            match (
+                get_secret("supabase.muse-dev2.service-role-key"),
+                get_secret("supabase.muse-dev2.project-url"),
+            ) {
                 (Ok(key), Ok(url)) => {
                     let creds = Creds {
                         key,
@@ -192,7 +198,9 @@ impl State {
             };
             return Ok((parsed, content_range));
         }
-        Err(err4("PostgREST request failed after credential refresh".into()))
+        Err(err4(
+            "PostgREST request failed after credential refresh".into(),
+        ))
     }
 
     fn rpc(&self, fn_name: &str, args: Value) -> Result<Value, BErr> {
@@ -297,7 +305,11 @@ fn dispatch(st: &State, path: &str, req: &Value) -> Value {
                 .unwrap_or("")
                 .to_string();
             let task = validate::task_from_packet(&packet, &queue);
-            if req.get("dry_run").and_then(|d| d.as_bool()).unwrap_or(false) {
+            if req
+                .get("dry_run")
+                .and_then(|d| d.as_bool())
+                .unwrap_or(false)
+            {
                 return ok(json!({"dry_run": true, "task": task, "warnings": warnings}));
             }
             let repo = packet
@@ -455,10 +467,7 @@ fn dispatch(st: &State, path: &str, req: &Value) -> Value {
                 path += &format!("&status=eq.{}", quote(s, ""));
             }
             if let Some(nb) = req.get("not_before").and_then(|s| s.as_str()) {
-                path += &format!(
-                    "&or=(not_before.is.null,not_before.lte.{})",
-                    quote(nb, ":")
-                );
+                path += &format!("&or=(not_before.is.null,not_before.lte.{})", quote(nb, ":"));
             }
             match st.postgrest("GET", &path, None, false) {
                 Ok((rows, _)) => ok(json!({"rows": rows})),
@@ -484,9 +493,9 @@ fn dispatch(st: &State, path: &str, req: &Value) -> Value {
                 path += &format!("&queue=eq.{}", quote(q, ""));
             }
             match st.postgrest("GET", &path, None, false) {
-                Ok((rows, _)) => {
-                    ok(json!({"project_netloc": netloc, "project_source": "bitwarden", "rows": rows}))
-                }
+                Ok((rows, _)) => ok(
+                    json!({"project_netloc": netloc, "project_source": "bitwarden", "rows": rows}),
+                ),
                 Err(e) => fail(e.exit, e.msg),
             }
         }
@@ -526,9 +535,7 @@ fn json_response(status: u16, body: Value) -> Response<std::io::Cursor<Vec<u8>>>
     let data = serde_json::to_vec(&body).unwrap_or_else(|_| b"{}".to_vec());
     Response::from_data(data)
         .with_status_code(StatusCode(status))
-        .with_header(
-            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
-        )
+        .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap())
 }
 
 fn token_ok(req: &tiny_http::Request, expected: &str) -> bool {
@@ -594,8 +601,7 @@ fn main() {
                 let mut buf = String::new();
                 match req.as_reader().read_to_string(&mut buf) {
                     Ok(_) => {
-                        let parsed: Value =
-                            serde_json::from_str(&buf).unwrap_or(Value::Null);
+                        let parsed: Value = serde_json::from_str(&buf).unwrap_or(Value::Null);
                         json_response(200, dispatch(&state, &path, &parsed))
                     }
                     Err(e) => json_response(

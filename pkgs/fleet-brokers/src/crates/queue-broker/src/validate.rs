@@ -54,7 +54,8 @@ fn manual_schema_errors(p: &Value) -> Vec<String> {
         sorted.sort();
         errs.push(format!("payload.kind: must be one of {sorted:?}"));
     }
-    let repo_ok = matches!(get("repo"), Some(Value::String(r)) if FLEET_REPOS.contains(&r.as_str()));
+    let repo_ok =
+        matches!(get("repo"), Some(Value::String(r)) if FLEET_REPOS.contains(&r.as_str()));
     if !repo_ok {
         errs.push(format!(
             "payload.repo: {} is not a fleet repo",
@@ -90,9 +91,7 @@ fn manual_schema_errors(p: &Value) -> Vec<String> {
         _ => errs.push("payload.scope: must be an object with include/exclude".to_string()),
     }
     match get("risk") {
-        Some(Value::Object(risk))
-            if matches!(risk.get("level"), Some(Value::String(l)) if ["low","medium","high"].contains(&l.as_str())) =>
-        {
+        Some(Value::Object(risk)) if matches!(risk.get("level"), Some(Value::String(l)) if ["low","medium","high"].contains(&l.as_str())) => {
             if !matches!(risk.get("flags"), Some(Value::Array(_))) {
                 errs.push("payload.risk.flags: must be a list".to_string());
             }
@@ -100,7 +99,8 @@ fn manual_schema_errors(p: &Value) -> Vec<String> {
         _ => errs.push("payload.risk.level: must be low|medium|high".to_string()),
     }
     for f in ["timebox_minutes", "max_attempts"] {
-        let ok = matches!(get(f), Some(Value::Number(n)) if n.as_i64().map(|v| v >= 1).unwrap_or(false));
+        let ok =
+            matches!(get(f), Some(Value::Number(n)) if n.as_i64().map(|v| v >= 1).unwrap_or(false));
         if !ok {
             errs.push(format!("payload.{f}: must be a positive integer"));
         }
@@ -207,9 +207,7 @@ fn match_dedupe(key: &str) -> Option<DedupeMatch> {
                             family: fam.into(),
                             repo: repo.to_string(),
                             num: None,
-                            nums: Some(
-                                parts.iter().filter_map(|p| p.parse().ok()).collect(),
-                            ),
+                            nums: Some(parts.iter().filter_map(|p| p.parse().ok()).collect()),
                             origin: None,
                         });
                     }
@@ -341,9 +339,8 @@ fn dedupe_errors(packet: &Value, payload: &Value) -> Vec<String> {
             let mut sorted = nums.clone();
             sorted.sort();
             if nums != sorted {
-                errors.push(
-                    "packet.dedupe_key: pr-set numbers must be sorted ascending".to_string(),
-                );
+                errors
+                    .push("packet.dedupe_key: pr-set numbers must be sorted ascending".to_string());
             }
             if !pr_numbers.is_empty() {
                 let mut sp = pr_numbers.clone();
@@ -434,7 +431,11 @@ pub fn validate_packet(packet: &Value) -> (Vec<String>, Vec<String>) {
     }
     if let Some(ma) = payload.get("max_attempts").and_then(|v| v.as_i64()) {
         let kind = payload.get("kind").and_then(|k| k.as_str()).unwrap_or("");
-        let want = if kind == "triage" || kind == "ci_investigation" { 6 } else { 4 };
+        let want = if kind == "triage" || kind == "ci_investigation" {
+            6
+        } else {
+            4
+        };
         if ma != want {
             warnings.push(format!(
                 "payload.max_attempts: design default for {kind} is {want}, packet says {ma}"

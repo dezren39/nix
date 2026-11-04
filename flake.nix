@@ -1455,60 +1455,90 @@ rec {
         # code#5362: the fleet-brokers home-manager module must render
         # all three fleet service units pointing at the flake's own packages.
         fleet-brokers-home-manager-module =
-          let
-            selfPkgs = mkPackages pkgs;
-            eval = inputs.home-manager.lib.homeManagerConfiguration {
-              inherit pkgs;
-              modules = [
-                inputs.self.homeManagerModules.fleet-brokers
-                {
-                  services.fleet-brokers = {
-                    enable = true;
-                    package = selfPkgs.fleet-brokers;
-                    laptopAgentPackage = selfPkgs.laptop-agent;
-                  };
-                  home = {
-                    username = "fleet-test";
-                    homeDirectory = "/home/fleet-test";
-                    stateVersion = "25.11";
-                  };
-                }
-              ];
-            };
-            qb = eval.config.systemd.user.services.queue-broker.Service;
-            sb = eval.config.systemd.user.services.secrets-broker.Service;
-            la = eval.config.systemd.user.services.laptop-agent.Service;
-          in
-          pkgs.runCommandLocal "fleet-brokers-home-manager-module-check"
+          # The module's service config is guarded by hostPlatform.isLinux,
+          # so the check must not evaluate it on Darwin (codex P1 on #1459).
+          if !pkgs.stdenv.hostPlatform.isLinux then
+            pkgs.runCommandLocal "fleet-brokers-home-manager-module-check" { } "touch $out"
+          else
+            let
+              selfPkgs = mkPackages pkgs;
+              eval = inputs.home-manager.lib.homeManagerConfiguration {
+                inherit pkgs;
+                modules = [
+                  inputs.self.homeManagerModules.fleet-brokers
+                  {
+                    services.fleet-brokers = {
+                      enable = true;
+                      package = selfPkgs.fleet-brokers;
+                      laptopAgentPackage = selfPkgs.laptop-agent;
+                      # nixpkgs' bws is unfree; the check only needs a
+                      # package on the unit PATH, so a stub stands in.
+                      bwsPackage = pkgs.coreutils;
+                    };
+                    home = {
+                      username = "fleet-test";
+                      homeDirectory = "/home/fleet-test";
+                      stateVersion = "25.11";
+                    };
+                  }
+                ];
+              };
+              qb = eval.config.systemd.user.services.queue-broker.Service;
+              sb = eval.config.systemd.user.services.secrets-broker.Service;
+              la = eval.config.systemd.user.services.laptop-agent.Service;
+            in
+            pkgs.runCommandLocal "fleet-brokers-home-manager-module-check"
+              {
+                qbExec = qb.ExecStart;
+                sbExec = sb.ExecStart;
+                sbPath = pkgs.lib.concatStringsSep ":" sb.Environment;
+                bwsBin = "${pkgs.coreutils}/bin";
+                laExec = la.ExecStart;
+                wantedBy = pkgs.lib.concatStringsSep " " eval.config.systemd.user.services.queue-broker.Install.WantedBy;
+              }
+              ''
+                case "$qbExec" in
+                *"/bin/queue-broker") ;;
+                *)
+                  echo "queue-broker ExecStart wrong: $qbExec" >&2
+                  exit 1
+                  ;;
+                esac
+                case "$sbExec" in
+                *"/bin/secrets-broker") ;;
+                *)
+                  echo "secrets-broker ExecStart wrong: $sbExec" >&2
+                  exit 1
+                  ;;
+                esac
+                case "$sbPath" in
+                *"$bwsBin"*) ;;
+                *)
+                  echo "secrets-broker PATH lacks bwsPackage: $sbPath" >&2
+                  exit 1
+                  ;;
+                esac
+                case "$laExec" in
+                *"/bin/laptop-agent") ;;
+                *)
+                  echo "laptop-agent ExecStart wrong: $laExec" >&2
+                  exit 1
+                  ;;
+                esac
+                [ "$wantedBy" = "default.target" ] || { echo "WantedBy=$wantedBy, want default.target" >&2; exit 1; }
+                touch $out
+              '';
+        # code#5343: the laptop-agent must reject an empty token at startup
+        # and authenticate requests by header (PR #1459 codex P1).
+        laptop-agent-tests =
+          pkgs.runCommandLocal "laptop-agent-tests"
             {
-              qbExec = qb.ExecStart;
-              sbExec = sb.ExecStart;
-              laExec = la.ExecStart;
-              wantedBy = pkgs.lib.concatStringsSep " " eval.config.systemd.user.services.queue-broker.Install.WantedBy;
+              nativeBuildInputs = [ pkgs.python3 ];
             }
             ''
-              case "$qbExec" in
-              *"/bin/queue-broker") ;;
-              *)
-                echo "queue-broker ExecStart wrong: $qbExec" >&2
-                exit 1
-                ;;
-              esac
-              case "$sbExec" in
-              *"/bin/secrets-broker") ;;
-              *)
-                echo "secrets-broker ExecStart wrong: $sbExec" >&2
-                exit 1
-                ;;
-              esac
-              case "$laExec" in
-              *"/bin/laptop-agent") ;;
-              *)
-                echo "laptop-agent ExecStart wrong: $laExec" >&2
-                exit 1
-                ;;
-              esac
-              [ "$wantedBy" = "default.target" ] || { echo "WantedBy=$wantedBy, want default.target" >&2; exit 1; }
+              cp -r ${./pkgs/laptop-agent/src} src
+              cp -r ${./pkgs/laptop-agent/tests} tests
+              python3 -m unittest discover -s tests -v
               touch $out
             '';
       }

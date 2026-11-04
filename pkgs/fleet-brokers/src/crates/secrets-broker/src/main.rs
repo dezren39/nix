@@ -64,7 +64,11 @@ fn bws_run(args: &[&str], token: &str) -> Result<String, String> {
         return Err(format!(
             "bws {} failed: {}",
             args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim().chars().take(200).collect::<String>()
+            String::from_utf8_lossy(&out.stderr)
+                .trim()
+                .chars()
+                .take(200)
+                .collect::<String>()
         ));
     }
     String::from_utf8(out.stdout).map_err(|e| format!("bws output not utf8: {e}"))
@@ -104,31 +108,46 @@ fn do_refresh(state: &Arc<State>) -> Result<usize, String> {
     let items = Arc::new(items);
     let idx = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let got = Arc::new(RwLock::new(HashMap::new()));
+    let failed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut handles = Vec::new();
     for _ in 0..8 {
         let items = Arc::clone(&items);
         let idx = Arc::clone(&idx);
         let got = Arc::clone(&got);
+        let failed = Arc::clone(&failed);
         let token = token.clone();
-        handles.push(std::thread::spawn(move || {
-            loop {
-                let i = idx.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if i >= items.len() {
-                    return;
+        handles.push(std::thread::spawn(move || loop {
+            let i = idx.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if i >= items.len() {
+                return;
+            }
+            let (id, key) = &items[i];
+            let value = bws_run(&["secret", "get", id, "-o", "json"], &token)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                .and_then(|v| v.get("value").and_then(|x| x.as_str()).map(str::to_string));
+            match value {
+                Some(v) => {
+                    got.write().unwrap().insert(key.clone(), v);
                 }
-                let (id, key) = &items[i];
-                if let Ok(raw) = bws_run(&["secret", "get", id, "-o", "json"], &token) {
-                    if let Ok(v) = serde_json::from_str::<Value>(&raw) {
-                        if let Some(val) = v.get("value").and_then(|x| x.as_str()) {
-                            got.write().unwrap().insert(key.clone(), val.to_string());
-                        }
-                    }
+                None => {
+                    failed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
             }
         }));
     }
     for h in handles {
         let _ = h.join();
+    }
+    let misses = failed.load(std::sync::atomic::Ordering::SeqCst);
+    if misses > 0 {
+        // Do not publish a partial snapshot: keeping the previous cache
+        // (and its last_refresh) preserves stale-while-revalidate, and on
+        // the first load leaves consumers with the retryable 503.
+        return Err(format!(
+            "partial refresh: {misses}/{} fetches failed",
+            items.len()
+        ));
     }
     let map = got.read().unwrap().clone();
     let n = map.len();
@@ -141,9 +160,7 @@ fn json_response(status: u16, body: Value) -> Response<std::io::Cursor<Vec<u8>>>
     let data = serde_json::to_vec(&body).unwrap_or_else(|_| b"{}".to_vec());
     Response::from_data(data)
         .with_status_code(StatusCode(status))
-        .with_header(
-            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
-        )
+        .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap())
 }
 
 fn token_ok(req: &tiny_http::Request, expected: &str) -> bool {
@@ -155,8 +172,8 @@ fn token_ok(req: &tiny_http::Request, expected: &str) -> bool {
 }
 
 fn main() {
-    let bind = std::env::var("SECRETS_BROKER_BIND")
-        .unwrap_or_else(|_| "100.99.113.103:4800".to_string());
+    let bind =
+        std::env::var("SECRETS_BROKER_BIND").unwrap_or_else(|_| "100.99.113.103:4800".to_string());
     let home = std::env::var("HOME").expect("HOME unset");
     let token_file = std::env::var("SECRETS_BROKER_TOKEN_FILE")
         .unwrap_or_else(|_| format!("{home}/.config/secrets-broker/token"));
@@ -232,15 +249,10 @@ fn main() {
                 let name = url_decode(&name);
                 let cache = state.secrets.read().unwrap();
                 match cache.get(&name) {
-                    Some(v) => {
-                        json_response(200, json!({"key": name, "value": v}))
-                    }
+                    Some(v) => json_response(200, json!({"key": name, "value": v})),
                     None => {
                         if state.last_refresh.read().unwrap().is_none() {
-                            json_response(
-                                503,
-                                json!({"error": "secrets not loaded yet"}),
-                            )
+                            json_response(503, json!({"error": "secrets not loaded yet"}))
                         } else {
                             json_response(404, json!({"error": "no such secret"}))
                         }
@@ -260,10 +272,9 @@ fn url_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(v) = u8::from_str_radix(
-                std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""),
-                16,
-            ) {
+            if let Ok(v) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 out.push(v);
                 i += 3;
                 continue;

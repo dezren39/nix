@@ -162,33 +162,55 @@ fn broker_roundtrip(path: &str, body: &Value) -> Result<Value, String> {
                 return Ok(body);
             }
             Err(e) => {
-                if attempt == 0 {
+                // Only a request that never reached the proxy may be
+                // replayed. After submission the outcome is unknown, and
+                // replaying a mutation (e.g. /claim) can claim a second
+                // task while the caller only learns the second id.
+                if attempt == 0 && e.retry_safe {
                     spawn_broker();
                     continue;
                 }
-                return Err(e);
+                return Err(e.msg);
             }
         }
     }
     Err("unreachable".to_string())
 }
 
-fn unix_roundtrip(data: &[u8]) -> Result<Value, String> {
-    let mut s = UnixStream::connect(broker_sock())
-        .map_err(|e| format!("cannot connect to session proxy: {e}"))?;
+struct RoundtripError {
+    /// True only when no byte of the request could have been submitted.
+    retry_safe: bool,
+    msg: String,
+}
+
+impl RoundtripError {
+    fn submitted(msg: String) -> Self {
+        Self {
+            retry_safe: false,
+            msg,
+        }
+    }
+}
+
+fn unix_roundtrip(data: &[u8]) -> Result<Value, RoundtripError> {
+    let mut s = UnixStream::connect(broker_sock()).map_err(|e| RoundtripError {
+        retry_safe: true,
+        msg: format!("cannot connect to session proxy: {e}"),
+    })?;
     s.set_read_timeout(Some(Duration::from_secs(660))).ok();
     s.set_write_timeout(Some(Duration::from_secs(60))).ok();
     s.write_all(&(data.len() as u64).to_be_bytes())
         .and_then(|_| s.write_all(data))
-        .map_err(|e| format!("session proxy write failed: {e}"))?;
+        .map_err(|e| RoundtripError::submitted(format!("session proxy write failed: {e}")))?;
     let mut hdr = [0u8; 8];
     s.read_exact(&mut hdr)
-        .map_err(|e| format!("session proxy read failed: {e}"))?;
+        .map_err(|e| RoundtripError::submitted(format!("session proxy read failed: {e}")))?;
     let n = u64::from_be_bytes(hdr) as usize;
     let mut buf = vec![0u8; n];
     s.read_exact(&mut buf)
-        .map_err(|e| format!("session proxy read failed: {e}"))?;
-    serde_json::from_slice(&buf).map_err(|e| format!("session proxy bad reply: {e}"))
+        .map_err(|e| RoundtripError::submitted(format!("session proxy read failed: {e}")))?;
+    serde_json::from_slice(&buf)
+        .map_err(|e| RoundtripError::submitted(format!("session proxy bad reply: {e}")))
 }
 
 fn spawn_broker() {
@@ -476,7 +498,10 @@ fn parse_args(rest: &[String], flags: &[&str], bools: &[&str]) -> Args {
 
 impl Args {
     fn get(&self, name: &str) -> Option<String> {
-        self.opts.get(name).and_then(|v| v.as_str()).map(|s| s.to_string())
+        self.opts
+            .get(name)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
     fn has(&self, name: &str) -> bool {
         self.opts.contains_key(name)
@@ -501,7 +526,8 @@ fn opt_queue(args: &Args) -> String {
 }
 
 fn opt_worker(args: &Args) -> String {
-    args.get("worker").unwrap_or_else(|| DEFAULT_WORKER.to_string())
+    args.get("worker")
+        .unwrap_or_else(|| DEFAULT_WORKER.to_string())
 }
 
 fn load_packet(path: &str) -> Value {
@@ -594,12 +620,20 @@ fn validate_via_broker(packet: &Value, quiet: bool) -> Vec<String> {
     let warnings: Vec<String> = resp
         .get("warnings")
         .and_then(|w| w.as_array())
-        .map(|a| a.iter().filter_map(|w| w.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|w| w.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let errors: Vec<String> = resp
         .get("errors")
         .and_then(|w| w.as_array())
-        .map(|a| a.iter().filter_map(|w| w.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|w| w.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     for w in &warnings {
         eprint(&format!("warning: {w}"));
@@ -625,7 +659,11 @@ fn validate_via_broker(packet: &Value, quiet: bool) -> Vec<String> {
 
 fn cmd_validate(rest: &[String]) -> i32 {
     let args = parse_args(rest, &[], &[]);
-    let path = args.pos.first().cloned().unwrap_or_else(|| die(2, "validate: packet required"));
+    let path = args
+        .pos
+        .first()
+        .cloned()
+        .unwrap_or_else(|| die(2, "validate: packet required"));
     let packet = load_packet(&path);
     validate_via_broker(&packet, false);
     print_json(&json!({
@@ -639,7 +677,11 @@ fn cmd_validate(rest: &[String]) -> i32 {
 
 fn cmd_enqueue(rest: &[String]) -> i32 {
     let args = parse_args(rest, &["queue"], &["dry-run"]);
-    let path = args.pos.first().cloned().unwrap_or_else(|| die(2, "enqueue: packet required"));
+    let path = args
+        .pos
+        .first()
+        .cloned()
+        .unwrap_or_else(|| die(2, "enqueue: packet required"));
     let packet = load_packet(&path);
     let dry_run = args.has("dry-run");
     validate_via_broker(&packet, dry_run);
@@ -662,8 +704,16 @@ fn cmd_enqueue(rest: &[String]) -> i32 {
     let row = resp.get("row").cloned().unwrap_or(Value::Null);
     // Outcome classification (mirrors _enqueue_outcome in repo-queue.py).
     let tid = row.get("id").cloned().unwrap_or(Value::Null);
-    let q = row.get("queue").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let s = row.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let q = row
+        .get("queue")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let s = row
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let created_raw = row.get("created_at").cloned().unwrap_or(Value::Null);
     let created = parse_ts(&created_raw);
     let updated = parse_ts(&row.get("updated_at").cloned().unwrap_or(Value::Null));
@@ -671,7 +721,10 @@ fn cmd_enqueue(rest: &[String]) -> i32 {
     let mut warnings: Vec<String> = Vec::new();
     let line;
     if created.map(|c| c >= call_started - skew).unwrap_or(false) {
-        line = format!("enqueued new task {} (queue {q}, status {s})", fmt_cell(Some(&tid)));
+        line = format!(
+            "enqueued new task {} (queue {q}, status {s})",
+            fmt_cell(Some(&tid))
+        );
     } else {
         if q != queue {
             warnings.push(format!(
@@ -715,7 +768,11 @@ fn cmd_list(rest: &[String]) -> i32 {
         }),
     );
     let resp = unwrap_ok(resp);
-    let rows = resp.get("rows").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let rows = resp
+        .get("rows")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default();
     if rows.is_empty() {
         println!("(no tasks)");
         return 0;
@@ -815,7 +872,9 @@ fn cmd_heartbeat(rest: &[String]) -> i32 {
 
 fn cmd_checkpoint(rest: &[String]) -> i32 {
     let args = parse_args(rest, &["worker", "stage", "progress", "progress-file"], &[]);
-    let stage = args.get("stage").unwrap_or_else(|| die(2, "checkpoint: --stage is required"));
+    let stage = args
+        .get("stage")
+        .unwrap_or_else(|| die(2, "checkpoint: --stage is required"));
     let resp = unwrap_ok(call(
         "/checkpoint",
         &json!({
@@ -845,9 +904,14 @@ fn cmd_park(rest: &[String]) -> i32 {
         &[],
     );
     if args.has("delay-seconds") && args.has("not-before") {
-        die(2, "argument --not-before: not allowed with argument --delay-seconds");
+        die(
+            2,
+            "argument --not-before: not allowed with argument --delay-seconds",
+        );
     }
-    let reason = args.get("reason").unwrap_or_else(|| die(2, "park: --reason is required"));
+    let reason = args
+        .get("reason")
+        .unwrap_or_else(|| die(2, "park: --reason is required"));
     let mut body = json!({
         "task_id": args.pos_i64(0, "task_id"),
         "worker": opt_worker(&args),
@@ -880,11 +944,21 @@ fn cmd_park(rest: &[String]) -> i32 {
 fn cmd_block(rest: &[String]) -> i32 {
     let args = parse_args(
         rest,
-        &["worker", "reason-class", "blocker", "progress", "progress-file"],
+        &[
+            "worker",
+            "reason-class",
+            "blocker",
+            "progress",
+            "progress-file",
+        ],
         &[],
     );
-    let rc = args.get("reason-class").unwrap_or_else(|| die(2, "block: --reason-class is required"));
-    let blocker = args.get("blocker").unwrap_or_else(|| die(2, "block: --blocker is required"));
+    let rc = args
+        .get("reason-class")
+        .unwrap_or_else(|| die(2, "block: --reason-class is required"));
+    let blocker = args
+        .get("blocker")
+        .unwrap_or_else(|| die(2, "block: --blocker is required"));
     let resp = unwrap_ok(call(
         "/block",
         &json!({
@@ -901,8 +975,12 @@ fn cmd_block(rest: &[String]) -> i32 {
 
 fn cmd_cancel(rest: &[String]) -> i32 {
     let args = parse_args(rest, &["worker", "reason"], &[]);
-    let reason = args.get("reason").unwrap_or_else(|| die(2, "cancel: --reason is required"));
-    let worker = args.get("worker").unwrap_or_else(|| "fleet-monitor".to_string());
+    let reason = args
+        .get("reason")
+        .unwrap_or_else(|| die(2, "cancel: --reason is required"));
+    let worker = args
+        .get("worker")
+        .unwrap_or_else(|| "fleet-monitor".to_string());
     let resp = unwrap_ok(call(
         "/cancel",
         &json!({
@@ -917,10 +995,17 @@ fn cmd_cancel(rest: &[String]) -> i32 {
 
 fn cmd_fail(rest: &[String]) -> i32 {
     let args = parse_args(rest, &["worker", "error", "reason-class", "execution"], &[]);
-    let error = args.get("error").unwrap_or_else(|| die(2, "fail: --error is required"));
-    let reason_class = args.get("reason-class").unwrap_or_else(|| "transient".to_string());
+    let error = args
+        .get("error")
+        .unwrap_or_else(|| die(2, "fail: --error is required"));
+    let reason_class = args
+        .get("reason-class")
+        .unwrap_or_else(|| "transient".to_string());
     if !["transient", "deterministic", "blocked"].contains(&reason_class.as_str()) {
-        die(2, &format!("argument --reason-class: invalid choice: '{reason_class}'"));
+        die(
+            2,
+            &format!("argument --reason-class: invalid choice: '{reason_class}'"),
+        );
     }
     let mut body = json!({
         "task_id": args.pos_i64(0, "task_id"),
@@ -985,7 +1070,12 @@ fn cmd_complete(rest: &[String]) -> i32 {
                 &format!(
                     "--telemetry: unknown field(s) {}; allowed: {}",
                     py_str_list(&sorted),
-                    py_str_list(&TELEMETRY_FIELDS.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                    py_str_list(
+                        &TELEMETRY_FIELDS
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect::<Vec<_>>()
+                    )
                 ),
             );
         }
@@ -1000,12 +1090,18 @@ fn cmd_complete(rest: &[String]) -> i32 {
     if let Some(ex) = &ex {
         if result_obj.get("execution").is_none() {
             let mut block = Map::new();
-            block.insert("lane".to_string(), ex.get("lane").cloned().unwrap_or(Value::Null));
+            block.insert(
+                "lane".to_string(),
+                ex.get("lane").cloned().unwrap_or(Value::Null),
+            );
             block.insert(
                 "session_id".to_string(),
                 ex.get("session_id").cloned().unwrap_or(Value::Null),
             );
-            let has_fb = ex.get("fallback_reason").map(|v| !v.is_null()).unwrap_or(false);
+            let has_fb = ex
+                .get("fallback_reason")
+                .map(|v| !v.is_null())
+                .unwrap_or(false);
             block.insert("fallback".to_string(), Value::Bool(has_fb));
             if has_fb {
                 block.insert("fallback_reason".to_string(), ex["fallback_reason"].clone());
@@ -1036,10 +1132,20 @@ fn cmd_health(rest: &[String]) -> i32 {
         body["queue"] = json!(q);
     }
     let resp = unwrap_ok(call("/health", &body));
-    let netloc = resp.get("project_netloc").and_then(|v| v.as_str()).unwrap_or("");
-    let source = resp.get("project_source").and_then(|v| v.as_str()).unwrap_or("bitwarden");
+    let netloc = resp
+        .get("project_netloc")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let source = resp
+        .get("project_source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("bitwarden");
     println!("project: {netloc} (resolved via {source})");
-    let rows = resp.get("rows").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let rows = resp
+        .get("rows")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default();
     if rows.is_empty() {
         println!("(no queues have tasks)");
         return 0;
@@ -1059,7 +1165,9 @@ fn cmd_health(rest: &[String]) -> i32 {
 fn cmd_signal(rest: &[String]) -> i32 {
     let args = parse_args(rest, &["queue", "reason"], &[]);
     let queue = opt_queue(&args);
-    let reason = args.get("reason").unwrap_or_else(|| "manual_signal".to_string());
+    let reason = args
+        .get("reason")
+        .unwrap_or_else(|| "manual_signal".to_string());
     let resp = unwrap_ok(call("/signal-count", &json!({"queue": queue})));
     let queued_count = resp.get("queued_count").cloned().unwrap_or(json!(0));
     let oldest = resp.get("oldest_queued_at").cloned().unwrap_or(Value::Null);

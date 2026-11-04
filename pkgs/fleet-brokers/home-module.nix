@@ -30,6 +30,18 @@ in
         (code#5343). No default, for the same reason as `package`.
       '';
     };
+
+    bwsPackage = lib.mkOption {
+      type = lib.types.package;
+      description = ''
+        The Bitwarden Secrets Manager CLI (`bws`) the secrets broker
+        shells out to on every refresh. No default: nixpkgs' `bws` is
+        unfree, so importing it here would make every consumer's
+        evaluation require `allowUnfree`. Supply a `bws` package from a
+        pkgs instance that allows it (this repository's configuration.nix
+        does); it is placed on the secrets-broker unit PATH.
+      '';
+    };
   };
 
   config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isLinux) {
@@ -64,6 +76,9 @@ in
         ExecStart = "${cfg.package}/bin/secrets-broker";
         Restart = "on-failure";
         RestartSec = 5;
+        # secrets-broker shells out to `bws`; without it every refresh
+        # fails and secrets stay unavailable (codex finding on #1459).
+        Environment = [ "PATH=${lib.makeBinPath [ cfg.bwsPackage ]}" ];
       };
       Install.WantedBy = [ "default.target" ];
     };
