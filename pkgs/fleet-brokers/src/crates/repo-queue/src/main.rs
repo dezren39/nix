@@ -78,6 +78,86 @@ fn direct_broker_url() -> Option<String> {
     None
 }
 
+fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, String> {
+    let mut pos = 0;
+    let mut decoded = Vec::new();
+    loop {
+        let line_end = body[pos..]
+            .windows(2)
+            .position(|w| w == b"\r\n")
+            .map(|n| pos + n)
+            .ok_or("queue-broker bad chunked reply: missing chunk-size terminator")?;
+        let line = std::str::from_utf8(&body[pos..line_end])
+            .map_err(|e| format!("queue-broker bad chunked reply: invalid chunk size: {e}"))?;
+        let size_text = line.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size_text, 16)
+            .map_err(|e| format!("queue-broker bad chunked reply: invalid chunk size: {e}"))?;
+        pos = line_end + 2;
+
+        if size == 0 {
+            let rest = &body[pos..];
+            let trailer_len = if rest.starts_with(b"\r\n") {
+                2
+            } else {
+                rest.windows(4)
+                    .position(|w| w == b"\r\n\r\n")
+                    .map(|n| n + 4)
+                    .ok_or("queue-broker bad chunked reply: unterminated trailers")?
+            };
+            if pos + trailer_len != body.len() {
+                return Err("queue-broker bad chunked reply: bytes after final chunk".into());
+            }
+            return Ok(decoded);
+        }
+
+        let data_end = pos
+            .checked_add(size)
+            .ok_or("queue-broker bad chunked reply: chunk size overflow")?;
+        let frame_end = data_end
+            .checked_add(2)
+            .ok_or("queue-broker bad chunked reply: chunk size overflow")?;
+        if frame_end > body.len() || &body[data_end..frame_end] != b"\r\n" {
+            return Err("queue-broker bad chunked reply: truncated chunk".into());
+        }
+        decoded.extend_from_slice(&body[pos..data_end]);
+        pos = frame_end;
+    }
+}
+
+fn parse_direct_response(raw: &[u8]) -> Result<(u64, Value), String> {
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or("queue-broker bad reply")?;
+    let head_txt = String::from_utf8_lossy(&raw[..split]);
+    let mut lines = head_txt.split("\r\n");
+    let status: u64 = lines
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse().ok())
+        .filter(|code| *code != 0)
+        .ok_or("queue-broker bad reply status")?;
+    let chunked = lines
+        .filter_map(|line| line.split_once(':'))
+        .any(|(name, value)| {
+            name.trim().eq_ignore_ascii_case("transfer-encoding")
+                && value
+                    .split(',')
+                    .any(|encoding| encoding.trim().eq_ignore_ascii_case("chunked"))
+        });
+    let raw_body = &raw[split + 4..];
+    let decoded;
+    let body = if chunked {
+        decoded = decode_chunked(raw_body)?;
+        decoded.as_slice()
+    } else {
+        raw_body
+    };
+    let response: Value =
+        serde_json::from_slice(body).map_err(|e| format!("queue-broker bad reply body: {e}"))?;
+    Ok((status, response))
+}
+
 fn direct_roundtrip(url: &str, path: &str, body: &Value) -> Result<Value, String> {
     let rest = url
         .strip_prefix("http://")
@@ -106,18 +186,7 @@ fn direct_roundtrip(url: &str, path: &str, body: &Value) -> Result<Value, String
     let mut raw = Vec::new();
     s.read_to_end(&mut raw)
         .map_err(|e| format!("queue-broker read failed: {e}"))?;
-    let split = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or("queue-broker bad reply")?;
-    let head_txt = String::from_utf8_lossy(&raw[..split]).to_string();
-    let status: u64 = head_txt
-        .split_whitespace()
-        .nth(1)
-        .and_then(|c| c.parse().ok())
-        .unwrap_or(0);
-    let resp_body: Value = serde_json::from_slice(&raw[split + 4..])
-        .map_err(|e| format!("queue-broker bad reply body: {e}"))?;
+    let (status, resp_body) = parse_direct_response(&raw)?;
     if status == 401 {
         die(3, "queue-broker rejected the client token (HTTP 401)");
     }
@@ -1261,4 +1330,34 @@ fn main() {
         }
     };
     exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_unframed_json_response() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n{\"ok\":true}";
+        assert_eq!(
+            parse_direct_response(raw).unwrap(),
+            (200, json!({"ok": true}))
+        );
+    }
+
+    #[test]
+    fn decodes_chunked_json_response() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: Chunked\r\n\r\nb;ext=one\r\n{\"ok\":true}\r\n0\r\n\r\n";
+        assert_eq!(
+            parse_direct_response(raw).unwrap(),
+            (200, json!({"ok": true}))
+        );
+    }
+
+    #[test]
+    fn rejects_truncated_chunked_response() {
+        let raw =
+            b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\nb\r\n{\"ok\":\r\n0\r\n\r\n";
+        assert!(parse_direct_response(raw).is_err());
+    }
 }

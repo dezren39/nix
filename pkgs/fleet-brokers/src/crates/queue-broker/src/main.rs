@@ -16,7 +16,6 @@
 
 mod validate;
 
-use std::io::Read;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -45,6 +44,10 @@ struct BErr {
 
 fn err4(msg: String) -> BErr {
     BErr { exit: 4, msg }
+}
+
+fn postgrest_body(result: Result<String, impl std::fmt::Display>) -> Result<String, BErr> {
+    result.map_err(|e| err4(format!("PostgREST response body read failed: {e}")))
 }
 
 impl State {
@@ -178,7 +181,7 @@ impl State {
                 .get("content-range")
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string());
-            let text = resp.body_mut().read_to_string().unwrap_or_default();
+            let text = postgrest_body(resp.body_mut().read_to_string())?;
             if status == 401 && attempt == 0 {
                 // Key may have rotated: refetch from the secrets broker.
                 *self.creds.write().unwrap() = None;
@@ -622,5 +625,23 @@ fn main() {
             };
             let _ = req.respond(resp);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    #[test]
+    fn propagates_postgrest_body_read_failures() {
+        let error = postgrest_body(Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "body timed out",
+        )))
+        .unwrap_err();
+        assert_eq!(error.exit, 4);
+        assert!(error.msg.contains("PostgREST response body read failed"));
+        assert!(error.msg.contains("body timed out"));
     }
 }

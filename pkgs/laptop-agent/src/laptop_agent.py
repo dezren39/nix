@@ -254,6 +254,7 @@ def job_state(job):
 
 
 def job_public(job, out_off=0, err_off=0):
+    state = job_state(job)
     d = job_dir(job["id"])
     out = b""
     err = b""
@@ -269,7 +270,6 @@ def job_public(job, out_off=0, err_off=0):
             err = f.read(MAX_OUT)
     except OSError:
         pass
-    state = job_state(job)
     return {"job_id": job["id"], "state": state,
             "exit": job["exit"] if state == "done" else None,
             "cwd": job["cwd"], "cmd": job["cmd_repr"],

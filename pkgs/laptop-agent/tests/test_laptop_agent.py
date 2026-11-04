@@ -15,6 +15,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 AGENT = Path(__file__).resolve().parents[1] / "src" / "laptop_agent.py"
 
@@ -106,6 +107,41 @@ class AuthHeaderTest(unittest.TestCase):
 
 
 class TailFileTest(unittest.TestCase):
+    def test_job_public_samples_state_before_reading_spools(self):
+        with tempfile.NamedTemporaryFile("w", suffix="-token",
+                                         delete=False) as f:
+            f.write("tail-test-token\n")
+            token_path = f.name
+        os.environ.setdefault("LAPTOP_AGENT_TOKEN_FILE", token_path)
+        sys.path.insert(0, str(AGENT.parent))
+        import laptop_agent as la
+
+        with tempfile.TemporaryDirectory() as state_dir:
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                job_id = "job-public-race"
+                spool = la.job_dir(job_id)
+                spool.mkdir(parents=True)
+                (spool / "stdout").write_bytes(b"")
+                (spool / "stderr").write_bytes(b"")
+                job = {"id": job_id, "state": "running", "proc": None,
+                       "exit": None, "cwd": "/", "cmd_repr": "test",
+                       "started_at": time.time(), "ended_at": None,
+                       "interrupted": False}
+
+                def finish_job(current):
+                    (spool / "stdout").write_bytes(b"final output")
+                    current["state"] = "done"
+                    current["exit"] = 0
+                    current["ended_at"] = time.time()
+                    return "done"
+
+                with patch.object(la, "job_state", side_effect=finish_job) as state:
+                    result = la.job_public(job)
+
+        state.assert_called_once_with(job)
+        self.assertEqual(result["state"], "done")
+        self.assertEqual(result["stdout"], "final output")
+
     def test_tail_caps_and_flags(self):
         with tempfile.NamedTemporaryFile("w", delete=False) as t:
             t.write("tail-test-token\n")
