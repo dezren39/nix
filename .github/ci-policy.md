@@ -1,10 +1,13 @@
 # CI policy — main-only tier
 
 Design: developing-today/code#1779 (`ci-fast-pr-full-main.md` §3.3–§3.4,
-§5), as amended by #1172 (2026-10-30): the `pull_request` tier was
-removed — CI is main-only. Every build workflow runs its full build
-on push to `main`, on a nightly schedule, and on `workflow_dispatch`;
-nothing runs on a pull request. This file is the adjustable policy
+§5), as amended by #1172 (2026-10-30: the `pull_request` tier was
+removed — CI is main-only) and by #1479 (2026-11-04: every `push`
+trigger removed — schedule, workflow_dispatch, workflow_call and
+placement only). Every build workflow runs its full build on a
+nightly schedule and on `workflow_dispatch`; nothing runs on a pull
+request, and nothing runs on a merge either — a merge to `main` is
+first built by the next nightly run (or a manual dispatch). This file is the adjustable policy
 surface for this repo: tuning the policy means editing this table by
 PR, never rewriting the pipeline. The highest class in a change wins.
 
@@ -18,18 +21,17 @@ PR, never rewriting the pipeline. The highest class in a change wins.
 
 Per-workflow application in this repo:
 
-- `mcpx nix build` — class 4. The full `nix build` runs on push to
-  `main` (restricted to `branches: [main]` and to `flake.nix`,
-  `flake.lock`, and the workflow file itself), on a nightly schedule
-  backstop, and on `workflow_dispatch`. Nothing the old PR build
-  covered vanishes: main + nightly run it.
+- `mcpx nix build` — class 4. The full `nix build` runs on a
+  nightly schedule (06:23 UTC) and on `workflow_dispatch`. Nothing
+  the old PR build covered vanishes: the nightly run covers the
+  same full build, just not per-merge.
 - `flake packages build` — #49: class 4 like `mcpx nix build`.
-  The full per-package `nix build` matrix runs on push to `main`
-  (nix/flake/package paths), nightly, and `workflow_dispatch`.
+  The full per-package `nix build` matrix runs nightly (06:47 UTC)
+  and on `workflow_dispatch`.
   mcpx is excluded — it stays owned by `mcpx nix build` above.
 - `flake checks build` — #1134: class 4 like `flake packages build`.
-  The full per-check `nix build` matrix (fail-fast off) runs on push
-  to `main`, nightly, and `workflow_dispatch`, covering every
+  The full per-check `nix build` matrix (fail-fast off) runs nightly
+  (07:17 UTC) and on `workflow_dispatch`, covering every
   `checks` derivation — the 23 `*-tests` suites plus `formatting`,
   `tidy`, and `mcpx-darwin-skip`. The check list is derived from the
   flake (`nix eval --json .#checks.x86_64-linux`), never hardcoded.
@@ -65,7 +67,11 @@ time in an inline workflow step: it mints a GitHub Actions OIDC token
 and posts the task to pm-dispatch's `/v1/tasks` endpoint at critical
 priority, attached to the issue it just filed. If that enqueue step
 fails, the issue carries the `queue/queued` label and the fleet monitor
-enqueues it as the fallback.
+enqueues it as the fallback. Detection latency (#1482): with no
+push triggers, the earliest automatic signal for a bad merge is the
+next nightly run of the affected workflow (up to ~24h after the
+merge) or a manual `workflow_dispatch`; the watcher acts only on
+those completed runs, never on the merge itself.
 
 ## Release gate — Phase 3 (developing-today/code#1782, step 7)
 

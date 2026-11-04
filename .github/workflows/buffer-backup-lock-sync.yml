@@ -33,9 +33,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Same shape as mcpx-nixbuild: push-to-main runs are keyed by run_id
-  # so every merged tree gets its own completed check; PR runs share a
-  # per-ref group so a new push supersedes its stale run.
+  # Same shape as mcpx-nixbuild: runs share a per-ref group so a new
+  # dispatch supersedes its stale run. This workflow is dispatch-only
+  # (#1479), so the event_name == 'push' branch in the group
+  # expression below is unreachable and it falls through to
+  # github.ref.
   group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.run_id || github.ref }}
   cancel-in-progress: true
 

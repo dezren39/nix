@@ -11,14 +11,16 @@ name: flake checks build
 # every check the flake exposes.
 #
 # Main-only tier (#1172 removed the pull_request eval tier; #1178
-# removed its leftover job): push to main + nightly schedule +
-# workflow_dispatch run the full build, one matrix job per check,
-# fail-fast off so one broken check never hides another.
+# removed its leftover job; #1479 removed the push trigger, #1482):
+# the nightly schedule + workflow_dispatch run the full build, one
+# matrix job per check, fail-fast off so one broken check never
+# hides another. There is no per-merge build: a broken merge is
+# first built by the next nightly run (or a manual dispatch).
 #
 # No path filters: a check's sources include root-level
 # scripts and test files, and a path filter that misses one silently
-# excludes that check — the #1108 lesson. Unfiltered triggers are the
-# safe default here.
+# excludes that check — the #1108 lesson. The schedule and dispatch
+# triggers are unfiltered by design.
 
 on:
   schedule:
@@ -32,7 +34,7 @@ permissions:
 
 concurrency:
   # Same pattern as flake-packages-build.yml: runs are keyed by run_id
-  # so a later merge can never cancel an earlier merge's verification.
+  # so a later run can never cancel an earlier run's verification.
   group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 
