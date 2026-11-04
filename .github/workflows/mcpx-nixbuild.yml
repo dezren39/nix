@@ -45,7 +45,7 @@ concurrency:
   # developing-today/code#392; the conditional cancel-in-progress
   # used by code's mcpx-conformance workflow would still let a third
   # rapid merge displace the second merge's pending run, so runs are
-  # keyed by run_id here, the pattern developing-today/opencode's
+  # keyed by run_id here, the pattern developing-today-forks/opencode's
   # check.yml already uses for main.)
   group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true

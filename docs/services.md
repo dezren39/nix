@@ -149,7 +149,7 @@ after model routes were saved) and `start (no-state)`.
   - The OpenCode fork's mcpx plugin starts `mcpx daemon` itself when
     `/v1/health` does not answer and ignores that setting
     (`packages/core/src/tool/plugin/mcpx.ts`, `ensureDaemon`;
-    developing-today/opencode#134).
+    developing-today-forks/opencode#134).
   - So the agent's wrapper stops whatever answers on its socket before starting.
     launchd never runs two copies of one job, so that process is a stray.
   - A daemon that finds its socket held exits 1, "a daemon is already

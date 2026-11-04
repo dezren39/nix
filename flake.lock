@@ -855,13 +855,13 @@
       "locked": {
         "lastModified": 1793706001,
         "narHash": "sha256-WIhYhS4ImNkk6H+Y5wk0Z4dsCehQ0DvC09FeD+CEM8s=",
-        "owner": "developing-today",
+        "owner": "developing-today-forks",
         "repo": "opencode",
         "rev": "2d912e02fce34b9e7c39288f045e1cf2b6318fcf",
         "type": "github"
       },
       "original": {
-        "owner": "developing-today",
+        "owner": "developing-today-forks",
         "repo": "opencode",
         "type": "github"
       }
