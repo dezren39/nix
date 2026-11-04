@@ -1,14 +1,16 @@
-//! repo-queue — sandbox client for the laptop queue-broker (code#5362).
+//! repo-queue — client for the laptop queue-broker (code#5362).
 //!
-//! Same CLI surface, exit codes, and stdout formats as repo-queue.py,
-//! but the only thing it connects to is the session proxy (the
-//! laptop-agent broker's Unix socket), which forwards to the
-//! queue-broker on the laptop. No Bitwarden fetch, no direct Supabase
-//! access from the sandbox. Exit 3 means the broker path itself is
-//! unavailable — the repo-queue.py shim falls back to the legacy
-//! direct implementation on 3, and only on 3.
+//! Same CLI surface, exit codes, and stdout formats as the retired
+//! repo-queue.py. Two transports reach the same queue-broker: from
+//! the sandbox, the session proxy (the laptop-agent broker's Unix
+//! socket); on the laptop itself, a direct HTTP connection selected
+//! by REPO_QUEUE_BROKER_URL or ~/.config/repo-queue/broker-url (the
+//! opencode claimant and the worker sessions it launches use this).
+//! No Bitwarden fetch, no direct Supabase access. Exit 3 means the
+//! broker path itself is unavailable.
 
 use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -49,7 +51,90 @@ fn broker_sock() -> String {
     format!("{}/.cache/laptop-agent/broker.sock", home())
 }
 
+// ---------------------------------------------------------------------------
+// Direct-broker transport (on-laptop use: the opencode claimant and
+// the worker sessions it launches run on the same host as the
+// queue-broker, where no session proxy exists). Selected by
+// REPO_QUEUE_BROKER_URL or ~/.config/repo-queue/broker-url; the token
+// comes from REPO_QUEUE_TOKEN_FILE or ~/.config/queue-broker/token.
+// With neither configured, the session-proxy transport below is used,
+// exactly as before.
+// ---------------------------------------------------------------------------
+
+fn direct_broker_url() -> Option<String> {
+    if let Ok(u) = std::env::var("REPO_QUEUE_BROKER_URL") {
+        let u = u.trim().to_string();
+        if !u.is_empty() {
+            return Some(u);
+        }
+    }
+    let p = format!("{}/.config/repo-queue/broker-url", home());
+    if let Ok(s) = std::fs::read_to_string(&p) {
+        let u = s.trim().to_string();
+        if !u.is_empty() {
+            return Some(u);
+        }
+    }
+    None
+}
+
+fn direct_roundtrip(url: &str, path: &str, body: &Value) -> Result<Value, String> {
+    let rest = url
+        .strip_prefix("http://")
+        .ok_or("broker URL must be http://host:port")?;
+    let hostport = rest.trim_end_matches('/');
+    if hostport.is_empty() || hostport.contains('/') {
+        return Err(format!("bad broker URL {url:?}"));
+    }
+    let token_file = std::env::var("REPO_QUEUE_TOKEN_FILE")
+        .unwrap_or_else(|_| format!("{}/.config/queue-broker/token", home()));
+    let token = std::fs::read_to_string(&token_file)
+        .map_err(|e| format!("cannot read queue-broker token file {token_file}: {e}"))?;
+    let token = token.trim();
+    let payload = serde_json::to_vec(body).unwrap();
+    let mut s = TcpStream::connect(hostport)
+        .map_err(|e| format!("cannot connect to queue-broker at {hostport}: {e}"))?;
+    s.set_read_timeout(Some(Duration::from_secs(300))).ok();
+    s.set_write_timeout(Some(Duration::from_secs(60))).ok();
+    let head = format!(
+        "POST {path} HTTP/1.1\r\nHost: {hostport}\r\nX-Agent-Token: {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        payload.len()
+    );
+    s.write_all(head.as_bytes())
+        .and_then(|_| s.write_all(&payload))
+        .map_err(|e| format!("queue-broker write failed: {e}"))?;
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw)
+        .map_err(|e| format!("queue-broker read failed: {e}"))?;
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or("queue-broker bad reply")?;
+    let head_txt = String::from_utf8_lossy(&raw[..split]).to_string();
+    let status: u64 = head_txt
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    let resp_body: Value = serde_json::from_slice(&raw[split + 4..]).unwrap_or(Value::Null);
+    if status == 401 {
+        die(3, "queue-broker rejected the client token (HTTP 401)");
+    }
+    if status >= 400 {
+        let msg = resp_body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("queue-broker error")
+            .to_string();
+        die(3, &msg);
+    }
+    Ok(resp_body)
+}
+
 fn broker_roundtrip(path: &str, body: &Value) -> Result<Value, String> {
+    if let Some(url) = direct_broker_url() {
+        return direct_roundtrip(&url, path, body);
+    }
     let payload = json!({
         "method": "POST",
         "path": path,

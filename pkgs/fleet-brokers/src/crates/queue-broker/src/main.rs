@@ -438,8 +438,17 @@ fn dispatch(st: &State, path: &str, req: &Value) -> Value {
         "/list" => {
             let queue = req.get("queue").and_then(|q| q.as_str()).unwrap_or("");
             let limit = req.get("limit").and_then(|l| l.as_i64()).unwrap_or(20);
+            // `rich` adds the claim/binding fields the on-laptop
+            // opencode claimant's poll.py needs (it reads through the
+            // broker since the binary-direct migration retired the
+            // Python helper it used to import).
+            let select = if req.get("rich").and_then(|r| r.as_bool()).unwrap_or(false) {
+                "id,queue,title,priority,status,dedupe_key,created_at,not_before,worker_id,lease_until,lane_id,attempts,max_attempts,progress"
+            } else {
+                "id,queue,title,priority,status,dedupe_key,created_at,not_before"
+            };
             let mut path = format!(
-                "tasks?select=id,queue,title,priority,status,dedupe_key,created_at,not_before&queue=eq.{}&order=priority.asc,created_at.asc&limit={limit}",
+                "tasks?select={select}&queue=eq.{}&order=priority.asc,created_at.asc&limit={limit}",
                 quote(queue, "")
             );
             if let Some(s) = req.get("status").and_then(|s| s.as_str()) {
