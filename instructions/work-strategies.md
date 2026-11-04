@@ -233,3 +233,23 @@ route ignored the new mode entirely. Its commit had a one-line message and no ev
   measures nothing. **A falling score can mean the code got more correct** — it has, twice.
 - Under parallel agents, load averages above 150 push `internal/e2e` past its default timeout. Raise
   `-timeout`; do not read it as a failure.
+
+## Oracles, property tests, and model tests
+
+**Every automated test names its oracle.** An oracle is the decision procedure that says whether
+the actual output matches the expected one — a spec, a schema, a reference implementation, an
+invariant check, a golden corpus. It is the hard part of automated testing. A test whose oracle
+is the code under test itself (or a copy of its logic) proves agreement, not correctness, and a
+test with no decidable oracle is a smell to fix, not ship.
+
+**Property-based testing (PBT):** state invariants that must always hold, then hammer the code
+with generated inputs to find counterexamples. In this repo that means spelling the invariant
+out in the paired `*.test.sh` suites and the flake `checks` — round-trips, idempotence, "this
+script never destroys X" — and generating the hostile cases (empty trees, dirty trees, missing
+files, interrupted runs) instead of only listing the happy ones.
+
+**Model-based testing (MBT):** where behavior has a model — a spec, the ARCHITECTURE doc, the
+declared fleet/repo state — generate the expected results from the model and compare, instead
+of hand-writing expected outputs case by case.
+
+Example-based tests stay fine for smoke coverage; they do not replace PBT/MBT where those fit.
