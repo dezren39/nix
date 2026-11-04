@@ -113,13 +113,26 @@ if ! brew info --json=v2 --cask "${CASKS[@]}" > "$INFOFILE" 2> "$ERRFILE"; then
 fi
 
 if ! python3 -c "
-import json, sys
+import json, os, sys
 data = json.load(sys.stdin)
 for c in data.get('casks', []):
     apps = []
     for a in c.get('artifacts', []):
         if isinstance(a, dict) and 'app' in a:
-            apps.extend(a['app'])
+            # An app artifact's list is [source, ..., {options}]: a
+            # 'target' option renames the installed bundle, so the
+            # target's basename is the app that exists on disk -- the
+            # source name does not (#1497). Without a target, every
+            # string element is an app to check. A non-string element
+            # is an options dict, never an app name: joining one
+            # crashed the scan (TypeError) on completely valid JSON.
+            elements = a['app'] if isinstance(a['app'], list) else [a['app']]
+            targets = [os.path.basename(e['target']) for e in elements
+                       if isinstance(e, dict) and isinstance(e.get('target'), str)]
+            if targets:
+                apps.extend(targets)
+            else:
+                apps.extend(e for e in elements if isinstance(e, str))
     print(c['token'] + '|' + '|'.join(apps))
 " < "$INFOFILE" > "$TMPFILE" 2> "$ERRFILE"; then
   echo "brew-repair: error: could not parse 'brew info' output as JSON — no casks could be verified" >&2
