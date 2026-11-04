@@ -294,6 +294,47 @@ grep -q "Done (unmount 1 target(s))" <<<"$out_k2" || fail "K: successful control
 [[ -s "$RMDIR_LOG" ]] || fail "K: successful control did not rmdir the empty, unmounted mount point"
 [[ $failures -eq $start ]] && ok "K: failing umount exits non-zero, names both failures, counts the target, no Unmounted/rmdir; successful control unchanged"
 
+# ─── Scenario L (#1455): is_mounted must not lose an early match to SIGPIPE ─
+# is_mounted was `mount | grep -qF ...` under `set -euo pipefail`: grep -q
+# exits on the first match, mount takes SIGPIPE while still writing, and
+# pipefail reports the pipeline as failed -- a mounted share read as not
+# mounted whenever the match came early in a large mount table (the suite
+# failed scenario K in 8/20 runs this way). This scenario drives the REAL
+# --status path (which skips check_deps) with a stub `mount` that prints
+# the target lines FIRST and then 5000 filler lines (far more than the
+# pipe buffer), plus a negative control with the same large output but
+# no target lines.
+start=$failures
+STUB_BIN_L="$TMP_ROOT/stub-bin-l"; mkdir -p "$STUB_BIN_L"
+write_bash_stub "$STUB_BIN_L/mount" <<'STUB'
+if [[ -n "${MOUNT_BIG_TARGET:-}" ]]; then
+  printf 'bindfs on %s (fuse, local)\n' "$MOUNT_BIG_TARGET"
+  printf 'bindfs on %s (fuse, local)\n' "$MOUNT_BIG_TARGET/plans"
+fi
+i=0
+while [[ $i -lt 5000 ]]; do
+  printf 'fillerfs on /nonexistent/filler-%s (fuse, local)\n' "$i"
+  i=$((i + 1))
+done
+STUB
+chmod +x "$STUB_BIN_L/mount"
+run_l() {
+  MOUNT_BIG_TARGET="$1" PATH="$STUB_BIN_L:$PATH" \
+    bash "$SCRIPT" --status --source "$SRC" "$UMOUNT_TARGET" 2>&1
+}
+out_l="$(run_l "$UMOUNT_TARGET/.opencode")"; rc_l=$?
+[[ $rc_l -eq 0 ]] || fail "L: status with early-match large mount output expected exit 0, got $rc_l"
+grep -q ".opencode: mounted (source: bindfs)" <<<"$out_l" || fail "L: early match in large mount output reported as not mounted (SIGPIPE/pipefail regression); output: $out_l"
+grep -q "plans/:   mounted (source: bindfs)" <<<"$out_l" || fail "L: plans early match in large mount output reported as not mounted; output: $out_l"
+out_l2="$(run_l "")"; rc_l2=$?
+[[ $rc_l2 -eq 0 ]] || fail "L: negative control expected exit 0, got $rc_l2"
+grep -q ".opencode: directory exists but not mounted" <<<"$out_l2" || fail "L: negative control (no target lines) did not report not mounted; output: $out_l2"
+if grep -q ".opencode: mounted" <<<"$out_l2"; then
+  fail "L: negative control reported a genuinely unmounted target as mounted (regression)"
+fi
+grep -q "^set -euo pipefail$" "$SCRIPT" || fail "L: script no longer runs under set -euo pipefail (fix must not disable pipefail)"
+[[ $failures -eq $start ]] && ok "L: early match in large mount output reports mounted for .opencode and plans; no-target control still reports not mounted; pipefail intact"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1
