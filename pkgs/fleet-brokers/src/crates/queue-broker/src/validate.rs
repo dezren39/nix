@@ -5,7 +5,7 @@
 //! wording, but accept/reject semantics match the manual contract and
 //! the database RPCs remain the backstop.)
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub const PRIORITY_SCALE: [i64; 7] = [10, 20, 30, 40, 50, 70, 90];
 pub const KINDS: [&str; 4] = ["pr_shepherd", "triage", "small_fix", "ci_investigation"];
@@ -271,7 +271,7 @@ fn dedupe_errors(packet: &Value, payload: &Value) -> Vec<String> {
         _ => {
             return vec![format!(
                 "packet.dedupe_key: required deterministic key:\n{DEDUPE_PATTERNS_DOC}"
-            )]
+            )];
         }
     };
     let m = match match_dedupe(&key) {
@@ -279,7 +279,7 @@ fn dedupe_errors(packet: &Value, payload: &Value) -> Vec<String> {
         None => {
             return vec![format!(
                 "packet.dedupe_key: '{key}' matches no design pattern:\n{DEDUPE_PATTERNS_DOC}"
-            )]
+            )];
         }
     };
     if let Some(repo) = payload.get("repo") {
