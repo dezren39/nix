@@ -10,7 +10,7 @@ own, and every fix goes into the fork it belongs to:
 
 ```
 anomalyco/opencode (dev, v2)  ->  dezren39/opencode  ->  developing-today/opencode   (main)
-openchamber/openchamber       ->  dezren39/openchamber -> developing-today/openchamber (main)
+openchamber/openchamber       ->  dezren39/openchamber -> developing-today-forks/openchamber (main)
                                                               |
                                   inputs.openchamber.inputs.opencode   (this repo, via its only developing-today input)
 ```
@@ -20,7 +20,7 @@ openchamber/openchamber       ->  dezren39/openchamber -> developing-today/openc
   (default branch `main`), as pinned by OpenChamber's lock. Its own
   `nixpkgs` is deliberately NOT followed: the fork's `nix/hashes.json`
   node_modules hashes are computed with the bun in the fork's locked nixpkgs.
-- `inputs.openchamber` = `github:developing-today/openchamber` — this repo's
+- `inputs.openchamber` = `github:developing-today-forks/openchamber` — this repo's
   only developing-today input. Its own `opencode` input is the one OpenCode
   this repo consumes, so there is one OpenCode.
 - `flake.nix` `mkPackages`:
@@ -61,7 +61,7 @@ force-push `main`.
 3. Verify the OpenCode fork builds here: in a clone of developing-today/opencode
    at the commit you want, `nix build .#opencode -L` (detached, poll the log).
 4. Update OpenChamber's pin and verify it builds against that OpenCode:
-   in developing-today/openchamber, `nix flake update opencode`, then
+   in developing-today-forks/openchamber, `nix flake update opencode`, then
    `nix build .#openchamber .#openchamber-desktop -L`. Commit the lock and push.
 5. In this repo: `nix flake update openchamber`, then
    `just build-no-commit` until it passes, then one `just build` to commit.
@@ -75,7 +75,7 @@ every few minutes; never block on one long timeout.
 
 - **OpenCode build or behavior** -> fix in developing-today/opencode, push to
   `main`, then step 4 (OpenChamber lock), then step 5 (this repo's lock).
-- **OpenChamber build or behavior** -> fix in developing-today/openchamber,
+- **OpenChamber build or behavior** -> fix in developing-today-forks/openchamber,
   push, then step 5.
 - **Only this repo's wiring** (wrapper, launchd agent, env, activation) -> fix
   here.

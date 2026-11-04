@@ -832,13 +832,13 @@
       "locked": {
         "lastModified": 1793714533,
         "narHash": "sha256-aQyf5ad/lid2X0jervsa/3eK/ZaPvqUF8JIcl3skosY=",
-        "owner": "developing-today",
+        "owner": "developing-today-forks",
         "repo": "openchamber",
         "rev": "caf27a329ea5b7fe69501f5cece5ea31c893d959",
         "type": "github"
       },
       "original": {
-        "owner": "developing-today",
+        "owner": "developing-today-forks",
         "repo": "openchamber",
         "type": "github"
       }

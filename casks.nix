@@ -71,7 +71,7 @@ _: {
     "onedrive"
     "onyx" # system maintenance, cache cleaning, Spotlight reindexing
     # "onlyoffice"
-    # openchamber: built from developing-today/openchamber instead (openchamber.nix)
+    # openchamber: built from developing-today-forks/openchamber instead (openchamber.nix)
     "postico"
     "raycast"
     "rectangle"

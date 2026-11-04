@@ -152,7 +152,7 @@ rec {
     # below): its node_modules hashes are computed against the bun
     # in that nixpkgs, and a different bun can lay node_modules out
     # differently and miss the fixed-output hash.
-    openchamber.url = "github:developing-today/openchamber";
+    openchamber.url = "github:developing-today-forks/openchamber";
     sidepulse-src = {
       url = "github:inteliwear/sidepulse/main";
       flake = false;
