@@ -25,9 +25,7 @@ The OpenCode fork now bundles its own mcpx build (of code's `pkgs/mcpx`); that b
 
 | Title                                    | Horizon | Status   | Intent                                                                                                             | Links                                                                  |
 | ---------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Make mcpx consumable from the code repo  | Now     | planned  | Choose how to consume it and make it build on aarch64-darwin.                                                      | `developing-today/code#308`, `developing-today/code#237`               |
-| Port the useful differences into code    | Now     | planned  | The `EnsureDaemon` check, `MCPX_STATE_DIR` and any tests that exist only here.                                     | [plan](planning/plans/mcpx-extraction.md), `developing-today/code#306` |
-| Move the mcpx backlog                    | Now     | planned  | About 100 open mcpx issues here need new homes. GitHub cannot transfer across owners.                              | `developing-today/code#309`                                            |
+| mcpx takeover and handoff on darwin      | Now     | planned  | Takeover/upgrade/handoff is unsupported on darwin, and Linux-only tests break the darwin build.                        | `developing-today/code#237`                                            |
 
 ## Keeping agent work safe on disk
 
@@ -48,10 +46,6 @@ macOS `dirhelper` deletes files in the per-user temp dir that were not accessed 
 ## Sidepulse patches
 
 Sidepulse drives an LED strip from OpenCode state. This repo carries a patch stack on top of upstream.
-
-| Title                                               | Horizon | Status   | Intent                                                                                                                       | Links                        |
-| --------------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Patch series: signals                               | Later   | proposed | Error signal, held completion signal, failures that stop expiring, several signals at once, signals that mean what they say. | #329, #332 |
 
 ## The darwin system
 
