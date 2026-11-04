@@ -198,9 +198,11 @@ write_bash_stub() {
   cat >> "$path"
 }
 write_bash_stub "$STUB_BIN/mount" <<'STUB'
+mount_output=""
 while IFS= read -r mp; do
-  [[ -n "$mp" ]] && echo "bindfs on $mp (fuse, local)"
+  [[ -n "$mp" ]] && mount_output+="bindfs on $mp (fuse, local)"$'\n'
 done < "$MOUNT_STATE"
+printf '%s' "$mount_output"
 STUB
 write_bash_stub "$STUB_BIN/umount" <<'STUB'
 echo "umount $*" >> "$UMOUNT_LOG"
@@ -266,31 +268,31 @@ if [[ "$k_mode" != "direct" ]]; then
   rc_k_negative=$?
   [[ $rc_k_negative -ne 0 ]] || fail "K: without a real or injected marker, check_deps expected failure"
   grep -q "macFUSE — install via:" <<<"$out_k_negative" || fail "K: negative control did not name missing macFUSE"
-
-  out_k="$(run_k 1)"; rc_k=$?
-  [[ $rc_k -ne 0 ]] || fail "K: failing umount expected non-zero exit, got $rc_k"
-  grep -q "Failed to unmount plans overlay: $UMOUNT_TARGET/.opencode/plans" <<<"$out_k" || fail "K: plans-overlay failure not named on stderr"
-  grep -q "Failed to unmount .opencode: $UMOUNT_TARGET/.opencode" <<<"$out_k" || fail "K: outer-mount failure not named on stderr; output: $out_k"
-  grep -q "1 target(s) had errors" <<<"$out_k" || fail "K: target not counted as an error in the summary"
-  if grep -q "Unmounted .opencode from" <<<"$out_k"; then
-    fail "K: still-mounted target reported as Unmounted (regression)"
-  fi
-  if grep -q "Done (unmount" <<<"$out_k"; then
-    fail "K: success Done line printed for a failed unmount (regression)"
-  fi
-  grep -q "umount $UMOUNT_TARGET/.opencode/plans" "$UMOUNT_LOG" || fail "K: plans umount was never attempted"
-  grep -q "umount $UMOUNT_TARGET/.opencode" "$UMOUNT_LOG" || fail "K: outer umount was never attempted"
-  if [[ -s "$RMDIR_LOG" ]]; then
-    fail "K: rmdir ran against a still-mounted directory (regression)"
-  fi
-  grep -q "Project plans preserved" <<<"$out_k" || fail "K: plans-preserved line missing on the failure path"
-  out_k2="$(run_k 0)"; rc_k2=$?
-  [[ $rc_k2 -eq 0 ]] || fail "K: successful umount control expected exit 0, got $rc_k2"
-  grep -q "Unmounted .opencode from $UMOUNT_TARGET" <<<"$out_k2" || fail "K: successful control did not report Unmounted"
-  grep -q "Done (unmount 1 target(s))" <<<"$out_k2" || fail "K: successful control missing the Done line"
-  [[ -s "$RMDIR_LOG" ]] || fail "K: successful control did not rmdir the empty, unmounted mount point"
-  [[ $failures -eq $start ]] && ok "K: failing umount exits non-zero, names both failures, counts the target, no Unmounted/rmdir; successful control unchanged"
 fi
+
+out_k="$(run_k 1)"; rc_k=$?
+[[ $rc_k -ne 0 ]] || fail "K: failing umount expected non-zero exit, got $rc_k"
+grep -q "Failed to unmount plans overlay: $UMOUNT_TARGET/.opencode/plans" <<<"$out_k" || fail "K: plans-overlay failure not named on stderr"
+grep -q "Failed to unmount .opencode: $UMOUNT_TARGET/.opencode" <<<"$out_k" || fail "K: outer-mount failure not named on stderr; output: $out_k"
+grep -q "1 target(s) had errors" <<<"$out_k" || fail "K: target not counted as an error in the summary"
+if grep -q "Unmounted .opencode from" <<<"$out_k"; then
+  fail "K: still-mounted target reported as Unmounted (regression)"
+fi
+if grep -q "Done (unmount" <<<"$out_k"; then
+  fail "K: success Done line printed for a failed unmount (regression)"
+fi
+grep -q "umount $UMOUNT_TARGET/.opencode/plans" "$UMOUNT_LOG" || fail "K: plans umount was never attempted"
+grep -q "umount $UMOUNT_TARGET/.opencode" "$UMOUNT_LOG" || fail "K: outer umount was never attempted"
+if [[ -s "$RMDIR_LOG" ]]; then
+  fail "K: rmdir ran against a still-mounted directory (regression)"
+fi
+grep -q "Project plans preserved" <<<"$out_k" || fail "K: plans-preserved line missing on the failure path"
+out_k2="$(run_k 0)"; rc_k2=$?
+[[ $rc_k2 -eq 0 ]] || fail "K: successful umount control expected exit 0, got $rc_k2"
+grep -q "Unmounted .opencode from $UMOUNT_TARGET" <<<"$out_k2" || fail "K: successful control did not report Unmounted"
+grep -q "Done (unmount 1 target(s))" <<<"$out_k2" || fail "K: successful control missing the Done line"
+[[ -s "$RMDIR_LOG" ]] || fail "K: successful control did not rmdir the empty, unmounted mount point"
+[[ $failures -eq $start ]] && ok "K: failing umount exits non-zero, names both failures, counts the target, no Unmounted/rmdir; successful control unchanged"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
