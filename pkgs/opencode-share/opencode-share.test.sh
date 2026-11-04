@@ -335,6 +335,20 @@ fi
 grep -q "^set -euo pipefail$" "$SCRIPT" || fail "L: script no longer runs under set -euo pipefail (fix must not disable pipefail)"
 [[ $failures -eq $start ]] && ok "L: early match in large mount output reports mounted for .opencode and plans; no-target control still reports not mounted; pipefail intact"
 
+# ─── Scenario M (#1465): the color gate honours NO_COLOR ─────────────────
+# The tty half of the gate predates this; NO_COLOR (https://no-color.org)
+# is the half a terminal user sets explicitly. A pty-driven run is not
+# portable across the test environments, so pin the gate's shape (the
+# Scenario D precedent) and the plain captured output together.
+start=$failures
+grep -q 'NO_COLOR' "$SCRIPT" || fail "M: opencode-share.sh does not consult NO_COLOR"
+grep -q '\-t 1' "$SCRIPT" || fail "M: opencode-share.sh lost its not-a-terminal color gate"
+out_m="$(bash "$SCRIPT" --dry-run --source "$SRC" "$GOOD1" 2>&1)"
+if [[ "$out_m" == *$'\033'* ]]; then
+  fail "M: captured (non-terminal) output contains ANSI escape bytes"
+fi
+[[ $failures -eq $start ]] && ok "M: color gate consults NO_COLOR and the tty; captured output is plain"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1

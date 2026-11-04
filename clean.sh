@@ -366,9 +366,20 @@ esac
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-C_WARN=$'\033[1;33m'; C_INFO=$'\033[0;36m'; C_OFF=$'\033[0m'
-warn() { printf '%s⚠️  %s%s\n' "$C_WARN" "$*" "$C_OFF" >&2; }
-info() { printf '%sℹ️  %s%s\n' "$C_INFO" "$*" "$C_OFF"; }
+# Gate each color by the stream its helper writes to: warn is stderr, info is
+# stdout. NO_COLOR disables both (https://no-color.org) -- Palette (#1465).
+set_output_colors() {
+  C_WARN=''; C_WARN_OFF=''; C_INFO=''; C_INFO_OFF=''
+  if [[ -z "${NO_COLOR:-}" && -t 2 ]]; then
+    C_WARN=$'\033[1;33m'; C_WARN_OFF=$'\033[0m'
+  fi
+  if [[ -z "${NO_COLOR:-}" && -t 1 ]]; then
+    C_INFO=$'\033[0;36m'; C_INFO_OFF=$'\033[0m'
+  fi
+}
+set_output_colors
+warn() { printf '%s⚠️  %s%s\n' "$C_WARN" "$*" "$C_WARN_OFF" >&2; }
+info() { printf '%sℹ️  %s%s\n' "$C_INFO" "$*" "$C_INFO_OFF"; }
 
 get_free_bytes() { df -k / | awk 'NR==2 {print $4 * 1024}'; }
 
