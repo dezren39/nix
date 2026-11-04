@@ -21,6 +21,11 @@
 # "No casks installed." (its status and stderr were lost in a process
 # substitution); now it names the step on stderr and exits 1, while a
 # genuinely empty successful list keeps the exit-0 empty path.
+# Scenario R covers #1497: a cask whose app stanza carries a target:
+# rename emits a dict element in the app list; '|'.join(apps) raised
+# TypeError, valid JSON was misreported as unparseable, and zero casks
+# were verified. The checked app is the target's basename (the source
+# name is not installed); present = healthy, missing = broken naming it.
 # This drives the REAL brew-repair.sh against a call-logging stub brew
 # with two broken casks (alpha, beta; both .apps missing).
 set -uo pipefail
@@ -59,6 +64,7 @@ case "$1" in
       info-fail) echo "Error: brew info blew up" >&2; exit 1 ;;
       info-garbage) printf '%s\n' 'this is not json' ;;
       partial) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]}]}' ;;
+      target) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app",{"target":"Target Alpha.app"}]}]},{"token":"beta","artifacts":[{"app":["Beta.app"]}]}]}' ;;
       *) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]},{"token":"beta","artifacts":[{"app":["Beta.app"]}]}]}' ;;
     esac ;;
   reinstall)
@@ -259,6 +265,25 @@ grep -q "0 failed" <<<"$out_q" || fail "Q: Results line does not show 0 failed"
 grep -q "1 cask(s) could not be verified" <<<"$out_q" || fail "Q: unverified-casks statement missing"
 [[ $(reinstall_count) -eq 1 ]] || fail "Q: expected 1 reinstall attempt, got $(reinstall_count)"
 [[ $failures -eq $start ]] && ok "Q: mixed broken+unchecked reinstall exits 1 despite 1 fixed / 0 failed, names the unverified count"
+
+# ─── Scenario R (#1497): target-renamed app artifact checks the target ────
+mkdir -p "$FAKE_HOME/Applications/Target Alpha.app" "$FAKE_HOME/Applications/Beta.app"
+start=$failures
+out_r="$(BREW_STUB_MODE=target run_brew_repair)"
+rc_r=$?
+[[ $rc_r -eq 0 ]] || fail "R: expected exit 0 with the target bundle present, got $rc_r"
+grep -q "All cask apps are healthy!" <<<"$out_r" || fail "R: healthy verdict missing for a target-renamed cask whose target is present"
+grep -q "2 healthy" <<<"$out_r" || fail "R: summary does not count both casks healthy"
+grep -q "could not parse" "$TMP_ROOT/stderr" && fail "R: valid target-shape JSON misreported as unparseable"
+[[ $failures -eq $start ]] && ok "R: target-renamed cask with target present is healthy, valid JSON parses"
+
+rm -rf "$FAKE_HOME/Applications/Target Alpha.app"
+start=$failures
+out_r2="$(BREW_STUB_MODE=target run_brew_repair -n)"
+grep -q "missing Target Alpha.app" <<<"$out_r2" || fail "R: missing target not named as the missing app"
+grep -q "1 broken" <<<"$out_r2" || fail "R: summary does not count alpha broken when its target is missing"
+grep -q "brew reinstall --cask alpha" <<<"$out_r2" || fail "R: alpha not listed as would-reinstall when its target is missing"
+[[ $failures -eq $start ]] && ok "R: target-renamed cask with target missing is broken, naming the target app"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
