@@ -22,12 +22,6 @@ name: mcpx nix build
 # vanish unnoticed — a break lands on main and the watcher files it.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "flake.nix"
-      - "flake.lock"
-      - ".github/workflows/mcpx-nixbuild.yml"
   schedule:
     # Nightly backstop for the full main-tier build.
     - cron: "23 6 * * *"
