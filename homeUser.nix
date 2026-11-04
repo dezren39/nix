@@ -135,6 +135,18 @@ lib.recursiveUpdate {
       # installGhCopilot: gh copilot is now built into gh (>=2.65) and executes
       # the native `copilot` binary from PATH (managed via copilot-cli cask).
       #
+      # Migration for the removed installPlaywright entry (Codex P2 on
+      # PR #1445): the old entry's `npm install -g` left a mutable
+      # `playwright` in ~/.npm-global/bin, and homePrograms.nix
+      # prepends that directory to PATH, so the stale executable would
+      # shadow the pinned playwright-test CLI indefinitely. Remove
+      # exactly the artifacts that entry created -- the bin shim and
+      # the package dirs (playwright-core is Playwright's own
+      # dependency) -- with no network and no npm invocation.
+      removeStaleNpmPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        run /bin/rm -f "$HOME/.npm-global/bin/playwright"
+        run /bin/rm -rf "$HOME/.npm-global/lib/node_modules/playwright" "$HOME/.npm-global/lib/node_modules/playwright-core"
+      '';
       # No installPlaywright / installPlannotator activation entries
       # (#1433): activation used to run an npm global install of Playwright's
       # mutable latest tag and the Plannotator install script piped
