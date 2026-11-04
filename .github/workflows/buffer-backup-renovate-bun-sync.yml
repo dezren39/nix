@@ -116,10 +116,12 @@ jobs:
             files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${number}/files?per_page=100" --paginate --jq '.[].filename')
             if printf '%s\n' "$files" | grep -qx 'pkgs/buffer-backup/package.json' \
               || printf '%s\n' "$files" | grep -qx 'pkgs/buffer-backup/package-lock.json'; then
-              prs=$(printf '%s' "$prs" | jq --argjson n "$number" --arg ref "$(printf '%s' "$candidates" | jq -r --argjson n "$number" '.[] | select(.number == $n) | .head_ref')" '. + [{number: $n, head_ref: $ref}]')
+              prs=$(printf '%s' "$prs" | jq -c --argjson n "$number" --arg ref "$(printf '%s' "$candidates" | jq -r --argjson n "$number" '.[] | select(.number == $n) | .head_ref')" '. + [{number: $n, head_ref: $ref}]')
               echo "::notice::PR #${number} is eligible for a bun.lock sync."
             fi
           done
+          # prs is compact single-line JSON (jq -c above): safe as a
+          # single-line GITHUB_OUTPUT value and for fromJSON in the matrix.
           echo "prs=${prs}" >> "$GITHUB_OUTPUT"
           echo "count=$(printf '%s' "$prs" | jq 'length')" >> "$GITHUB_OUTPUT"
           echo "::notice::Eligible Renovate buffer-backup PRs: $(printf '%s' "$prs" | jq -c '[.[].number]')"
