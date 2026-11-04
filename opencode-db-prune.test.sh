@@ -137,6 +137,81 @@ else
   fi
 fi
 
+
+# --- Many-line integrity_check must not SIGPIPE the capture (#1460). --
+# Both integrity captures used to read through `| head -1` under
+# pipefail: integrity_check emits one line per problem, so on a damaged
+# DB the output exceeds the pipe buffer, head exits, sqlite3 dies with
+# SIGPIPE, and the script aborted with exit 141 and no verdict -- at the
+# post-delete site, after the rows were already gone, losing the
+# restore-from-backup guidance too. Shim sqlite3s that flood
+# integrity_check with 5000 lines pin the fix (full capture + in-shell
+# first line) at both gates.
+real_sqlite3="$(command -v sqlite3)"
+mk_integrity_flood_shim() { # $1 = shim dir
+  mkdir -p "$1"
+  cat >"$1/sqlite3" <<EOF
+#!$(command -v bash)
+for a in "\$@"; do
+  case "\$a" in
+    *integrity_check*)
+      i=1; while [ \$i -le 5000 ]; do echo "row 999\$i missing from index idx_corrupt"; i=\$((i + 1)); done
+      exit 0 ;;
+  esac
+done
+exec $real_sqlite3 "\$@"
+EOF
+  chmod +x "$1/sqlite3"
+}
+mk_integrity_post_flood_shim() { # $1 = shim dir, $2 = counter file
+  mkdir -p "$1"
+  echo 0 >"$2"
+  cat >"$1/sqlite3" <<EOF
+#!$(command -v bash)
+for a in "\$@"; do
+  case "\$a" in
+    *integrity_check*)
+      n=\$(cat "$2"); n=\$((n + 1)); echo \$n >"$2"
+      if [ \$n -eq 1 ]; then echo ok; exit 0; fi
+      i=1; while [ \$i -le 5000 ]; do echo "row 999\$i missing from index idx_corrupt"; i=\$((i + 1)); done
+      exit 0 ;;
+  esac
+done
+exec $real_sqlite3 "\$@"
+EOF
+  chmod +x "$1/sqlite3"
+}
+
+before=$failures
+db="$fx/icflood-pre.db"; mk_fixture "$db"
+shimdir="$HOME/icflood-pre-shim"
+mk_integrity_flood_shim "$shimdir"
+out="$(PATH="$shimdir:$PATH" bash "$PRUNE" --db "$db" --protect-days 0 --apply -y --no-backup 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] || fail "pre-delete integrity flood exited $rc, expected 1 (141 is the SIGPIPE bug): $out"
+case "$out" in
+  *"integrity check failed -- refusing to modify a damaged database"*) ;;
+  *) fail "pre-delete integrity flood did not print the refusal verdict: $out" ;;
+esac
+[ "$(count_of "$db")" = "10" ] || fail "pre-delete integrity flood deleted rows (event count $(count_of "$db"), expected 10)"
+[ "$failures" -eq "$before" ] && ok "many-line integrity_check at the pre-delete gate dies at exit 1 with the refusal verdict, nothing deleted"
+
+before=$failures
+db="$fx/icflood-post.db"; mk_fixture "$db"
+shimdir="$HOME/icflood-post-shim"
+mk_integrity_post_flood_shim "$shimdir" "$HOME/icflood-post-count"
+out="$(PATH="$shimdir:$PATH" bash "$PRUNE" --db "$db" --protect-days 0 --apply -y 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] || fail "post-delete integrity flood exited $rc, expected 1 (141 is the SIGPIPE bug): $out"
+case "$out" in
+  *"integrity check FAILED after delete"*) ;;
+  *) fail "post-delete integrity flood did not print the FAILED-after-delete verdict: $out" ;;
+esac
+case "$out" in
+  *"Restore from the backup"*) ;;
+  *) fail "post-delete integrity flood did not print the restore guidance: $out" ;;
+esac
+[ "$(count_of "$db")" = "6" ] || fail "post-delete case deleted $(count_of "$db") event rows remaining, expected 6 (the 4 eligible rows were deleted before verification)"
+[ "$failures" -eq "$before" ] && ok "many-line integrity_check after the delete dies at exit 1 with the FAILED verdict and the restore guidance"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

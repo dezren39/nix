@@ -118,15 +118,15 @@ jobs:
             case "$INPUT_SCHEDULE" in
               # --- Task slots -> bolt,palette ---
               "0 1 * * *")   tasks="bolt,palette" ;; # developing-today/code — 20:00 CDT (previous evening)
-              "0 2 * * *")   tasks="bolt,palette" ;; # developing-today/openchamber — 21:00 CDT (previous evening)
-              "0 0 * * *")   tasks="bolt,palette" ;; # developing-today/opencode — 19:00 CDT (previous evening)
+              "0 2 * * *")   tasks="bolt,palette" ;; # developing-today-forks/openchamber — 21:00 CDT (previous evening)
+              "0 0 * * *")   tasks="bolt,palette" ;; # developing-today-forks/opencode — 19:00 CDT (previous evening)
               "0 5 * * *")   tasks="bolt,palette" ;; # dezren39/nix + dezren39/dezren39 — 00:00 CDT
               "30 13 * * *") tasks="bolt,palette" ;; # developing-today/zettel — 08:30 CDT
 
               # --- Suggestions slots -> suggestions ---
               "0 13 * * *") tasks="suggestions" ;; # developing-today/code — 08:00 CDT
-              "0 14 * * *") tasks="suggestions" ;; # developing-today/openchamber — 09:00 CDT
-              "0 15 * * *") tasks="suggestions" ;; # developing-today/opencode — 10:00 CDT
+              "0 14 * * *") tasks="suggestions" ;; # developing-today-forks/openchamber — 09:00 CDT
+              "0 15 * * *") tasks="suggestions" ;; # developing-today-forks/opencode — 10:00 CDT
               "0 16 * * *") tasks="suggestions" ;; # dezren39/nix — 11:00 CDT
               "0 17 * * *") tasks="suggestions" ;; # developing-today/zettel — 12:00 CDT
               "0 18 * * *") tasks="suggestions" ;; # dezren39/dezren39 — 13:00 CDT

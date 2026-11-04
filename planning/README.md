@@ -63,5 +63,5 @@ A roadmap row records intent. It is not a go-ahead to build the thing, and it do
 | Repository                     | Relation                                                                               |
 | ------------------------------ | -------------------------------------------------------------------------------------- |
 | `developing-today/code`        | Primary source for `mcpx`. This repo vendors a copy today and is moving to consume it. |
-| `developing-today/opencode`    | OpenCode fork, built here and pinned in `flake.nix`.                                   |
-| `developing-today/openchamber` | OpenChamber fork, built against that OpenCode.                                         |
+| `developing-today-forks/opencode`    | OpenCode fork, built here and pinned in `flake.nix`.                                   |
+| `developing-today-forks/openchamber` | OpenChamber fork, built against that OpenCode.                                         |

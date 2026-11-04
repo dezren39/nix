@@ -18,6 +18,11 @@
 #   node_modules:  $T/nmhost/node_modules/dep/.git/HEAD    -> NOT refreshed (pruned)
 #   regular file:  $T/opencode is a regular file           -> WARN logged, file kept
 #   missing link:  $T/opencode absent                      -> symlink created
+#   recreated dir: $T/opencode is a real directory again   -> contents folded
+#                  into the durable directory, a clashing entry kept as
+#                  <name>.from-tmpdir-<stamp>, then relinked (#1456)
+#   wrong target:  $T/opencode symlinks elsewhere          -> WARN naming the
+#                  actual target, link left in place (#1456)
 #
 # Run: bash opencode-tmp-guard.test.sh (exit 0 = all passed)
 set -u
@@ -120,6 +125,51 @@ grep -q "WARN" "$work/out2"; check "453 regular file: WARN logged" $?
 grep -q "$T2/opencode" "$work/out2"; check "453 regular file: WARN names the path" $?
 [ ! -L "$T2/opencode" ] && [ "$(cat "$T2/opencode")" = "user data, not a directory" ]
 check "453 regular file: left in place, content untouched" $?
+
+# --- Scenario 3: recreated real directory is folded (#1456) --------
+# The fold is the guard's only data-moving branch (opencode-tmp-guard.nix:
+# a real directory at $TMPDIR/opencode has every entry moved into the
+# durable directory, clashes preserved under a .from-tmpdir-<stamp> name,
+# then the path is relinked). #453 pinned the scan, the missing link and
+# the regular file; the fold itself was driven by nothing.
+T3="$work/T3"
+HOME3="$work/home3"
+D3="$HOME3/.local/share/opencode/tmp/opencode"
+mkdir -p "$T3/opencode/sub" "$D3"
+printf 'durable clash\n' > "$D3/clash.txt"
+printf 'incoming clash\n' > "$T3/opencode/clash.txt"
+printf 'unique\n' > "$T3/opencode/unique.txt"
+printf 'hidden\n' > "$T3/opencode/.hiddenfile"
+printf 'nested\n' > "$T3/opencode/sub/nested.txt"
+
+rc=$(run_guard "$T3" "$HOME3" "$work/out3")
+[ "$rc" -eq 0 ]; check "1456 fold run exits 0" $?
+[ -L "$T3/opencode" ]; check "1456 fold: recreated directory relinked as a symlink" $?
+[ "$(readlink "$T3/opencode")" = "$D3" ]
+check "1456 fold: symlink points at the durable directory" $?
+grep -q "relinked" "$work/out3"; check "1456 fold: relink logged" $?
+[ "$(cat "$D3/clash.txt")" = "durable clash" ]
+check "1456 fold: durable clash copy untouched" $?
+folded=$(echo "$D3"/clash.txt.from-tmpdir-*)
+[ -f "$folded" ] && [ "$(cat "$folded")" = "incoming clash" ]
+check "1456 fold: incoming clash preserved as .from-tmpdir-<stamp>" $?
+[ "$(cat "$D3/unique.txt")" = "unique" ]; check "1456 fold: plain entry folded" $?
+[ "$(cat "$D3/.hiddenfile")" = "hidden" ]; check "1456 fold: dotfile folded" $?
+[ "$(cat "$D3/sub/nested.txt")" = "nested" ]; check "1456 fold: nested directory folded" $?
+
+# --- Scenario 4: wrong-target symlink is left alone (#1456) --------
+T4="$work/T4"
+HOME4="$work/home4"
+mkdir -p "$T4/elsewhere" "$HOME4"
+ln -s "$T4/elsewhere" "$T4/opencode"
+
+rc=$(run_guard "$T4" "$HOME4" "$work/out4")
+[ "$rc" -eq 0 ]; check "1456 wrong-target run exits 0" $?
+grep -q "WARN" "$work/out4"; check "1456 wrong target: WARN logged" $?
+grep -q "points at $T4/elsewhere, not" "$work/out4"
+check "1456 wrong target: WARN names the actual target" $?
+[ "$(readlink "$T4/opencode")" = "$T4/elsewhere" ]
+check "1456 wrong target: symlink left in place" $?
 
 if [ "$failures" -gt 0 ]; then
   echo "FAILURES: $failures"

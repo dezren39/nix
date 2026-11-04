@@ -1,5 +1,5 @@
 {
-  // OpenCode v2 config (developing-today/opencode). Native v2 keys only: v1's
+  // OpenCode v2 config (developing-today-forks/opencode). Native v2 keys only: v1's
   // `agent`, `permission`, `plugin`, `autoupdate`, `small_model` and
   // `compaction.reserved` are gone or renamed, and v2 no longer reads
   // tui.jsonc (terminal UI settings live in ~/.config/opencode/cli.json).

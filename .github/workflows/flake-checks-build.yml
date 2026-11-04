@@ -21,8 +21,6 @@ name: flake checks build
 # safe default here.
 
 on:
-  push:
-    branches: [main]
   schedule:
     # Nightly backstop for the full main-tier build (offset from the
     # packages workflow's 06:47 run).

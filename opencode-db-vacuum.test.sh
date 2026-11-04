@@ -239,6 +239,66 @@ cmp -s "$db" "$fx/countfail-compact.before" || fail "compacted-side count failur
 [ ! -e "${db}.old" ] || fail "compacted-side count failure created ${db}.old (swap happened)"
 ok_if_clean "$before" "failed COUNT(*) on the compacted copy aborts before the swap, naming table and side, original untouched"
 
+
+# --- Many-line integrity_check must not SIGPIPE the capture (#1460). --
+# Both integrity captures used to read through `| head -1` under
+# pipefail: integrity_check emits one line per problem, so on a damaged
+# DB the output exceeds the pipe buffer, head exits, sqlite3 dies with
+# SIGPIPE, and the script aborted with exit 141 and no verdict. A shim
+# sqlite3 that floods integrity_check with 5000 lines pins the fix
+# (full capture + in-shell first line): each gate must reach its die
+# message at exit 1. real_sqlite3 is defined by the #1386 section above.
+mk_integrity_flood_shim() { # $1 = shim dir, $2 = all | compact
+  mkdir -p "$1"
+  cat >"$1/sqlite3" <<EOF
+#!$(command -v bash)
+for a in "\$@"; do
+  case "\$a" in
+    *integrity_check*)
+      if [ "$2" = compact ]; then
+        hit=0
+        for b in "\$@"; do case "\$b" in *.compact*) hit=1 ;; esac; done
+        [ "\$hit" -eq 1 ] || exec $real_sqlite3 "\$@"
+      fi
+      i=1; while [ \$i -le 5000 ]; do echo "row 999\$i missing from index idx_corrupt"; i=\$((i + 1)); done
+      exit 0 ;;
+  esac
+done
+exec $real_sqlite3 "\$@"
+EOF
+  chmod +x "$1/sqlite3"
+}
+
+before=$failures
+db="$fx/icflood-pre.db"; mk_fixture "$db"
+cp "$db" "$fx/icflood-pre.before"
+shimdir="$HOME/icflood-pre-shim"
+mk_integrity_flood_shim "$shimdir" all
+out="$(PATH="$shimdir:$PATH" bash "$VACUUM" --db "$db" -y 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] || fail "pre-vacuum integrity flood exited $rc, expected 1 (141 is the SIGPIPE bug): $out"
+case "$out" in
+  *"integrity check failed -- do NOT vacuum"*) ;;
+  *) fail "pre-vacuum integrity flood did not print the corruption verdict: $out" ;;
+esac
+cmp -s "$db" "$fx/icflood-pre.before" || fail "pre-vacuum integrity flood changed the DB"
+[ ! -e "${db}.compact" ] || fail "pre-vacuum integrity flood created a compacted copy"
+ok_if_clean "$before" "many-line integrity_check at the pre-vacuum gate dies at exit 1 with the corruption verdict, DB untouched"
+
+before=$failures
+db="$fx/icflood-compact.db"; mk_fixture "$db"
+cp "$db" "$fx/icflood-compact.before"
+shimdir="$HOME/icflood-compact-shim"
+mk_integrity_flood_shim "$shimdir" compact
+out="$(PATH="$shimdir:$PATH" bash "$VACUUM" --db "$db" -y 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] || fail "compacted-copy integrity flood exited $rc, expected 1 (141 is the SIGPIPE bug): $out"
+case "$out" in
+  *"compacted copy failed integrity check"*) ;;
+  *) fail "compacted-copy integrity flood did not print the verification verdict: $out" ;;
+esac
+cmp -s "$db" "$fx/icflood-compact.before" || fail "compacted-copy integrity flood changed the original DB (swap happened?)"
+[ ! -e "${db}.old" ] || fail "compacted-copy integrity flood created ${db}.old (swap happened)"
+ok_if_clean "$before" "many-line integrity_check on the compacted copy dies at exit 1 with the verification verdict, original untouched"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

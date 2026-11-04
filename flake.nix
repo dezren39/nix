@@ -152,7 +152,7 @@ rec {
     # below): its node_modules hashes are computed against the bun
     # in that nixpkgs, and a different bun can lay node_modules out
     # differently and miss the fixed-output hash.
-    openchamber.url = "github:developing-today/openchamber";
+    openchamber.url = "github:developing-today-forks/openchamber";
     sidepulse-src = {
       url = "github:inteliwear/sidepulse/main";
       flake = false;
@@ -332,7 +332,7 @@ rec {
         # have put git worktrees there and lost thousands of tracked files to a
         # sweep. OPENCODE_TMPDIR still overrides. Scoped to this wrapper rather
         # than the whole machine, which would retarget nix builds too.
-        # developing-today/opencode#13 asks for this in core.
+        # developing-today-forks/opencode#13 asks for this in core.
         opencode =
           pkgs.runCommandLocal "opencode-${opencode-unwrapped.version}"
             {
@@ -1426,7 +1426,8 @@ rec {
               restart = service.Restart;
               timeoutStopSec = toString service.TimeoutStopSec;
               wantedBy = pkgs.lib.concatStringsSep " " eval.config.systemd.user.services.mcpx.Install.WantedBy;
-              marker = eval.config.systemd.user.services.mcpx.environment.MCPX_TEST_MARKER;
+              marker =
+                if builtins.elem "MCPX_TEST_MARKER=present" service.Environment then "present" else "missing";
               environmentFile = service.EnvironmentFile;
               mcpxConfig = eval.config.home.sessionVariables.MCPX_CONFIG;
               xdgSource = eval.config.xdg.configFile."mcpx/config.json".source;

@@ -155,7 +155,7 @@ in
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
-      # OpenCode from developing-today/opencode, wrapped to pin the database
+      # OpenCode from developing-today-forks/opencode, wrapped to pin the database
       # and scratch dir (flake.nix mkPackages). The only opencode on PATH.
       ocPkgs.opencode
       # OpenChamber's server CLI. The server itself runs as the openchamber

@@ -122,6 +122,50 @@ out="$(bash "$PRUNE" --dir "$B" --keep 1 --max-age-days 30 --apply 2>&1)"; rc=$?
   || fail "invalid-timestamp apply left wrong tree: $(listing "$B")"
 ok "--apply --max-age-days completes, deletes valid old backups, leaves the impossible-date dir"
 
+# --- timestamp-named symlinks are not backups (#1467) ---------------------
+# A symlink whose name is a backup timestamp and whose target is a
+# directory passes the glob + [ -d ] candidate test, but it is not a
+# timestamp-named directory: it must not be counted, must not occupy a
+# --keep slot, and must never be listed or deleted (the loose sweep's
+# [ -L ] exclusion is the precedent). Newest-named symlink, --keep 3
+# over 4 real backups: exactly the oldest real backup is listed, the
+# total counts real dirs only ("1 of 4"), and --apply keeps 3 real
+# backups while the symlink and its target survive.
+B="$WORK/symlink-newest"; mkdir -p "$B"
+for d in 20260101T000000 20260201T000000 20260301T000000 20260401T000000; do
+  mkdir -p "$B/$d"; echo fixture > "$B/$d/opencode.db"
+done
+TARGET="$WORK/symlink-target"; mkdir -p "$TARGET"; echo keep > "$TARGET/opencode.db"
+ln -s "$TARGET" "$B/20260501T000000"
+out="$(bash "$PRUNE" --dir "$B" --keep 3 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "symlink dry run exited $rc: $out"
+n="$(printf '%s' "$out" | grep -c 'would delete:')"
+[ "$n" -eq 1 ] || fail "symlink dry run listed $n candidates, expected 1: $out"
+printf '%s' "$out" | grep -q "would delete: $B/20260101T000000\$" || fail "symlink dry run did not list the oldest real backup: $out"
+printf '%s' "$out" | grep -q "1 of 4 backup(s)" || fail "symlink counted in the total: $out"
+out="$(bash "$PRUNE" --dir "$B" --keep 3 --apply 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "symlink apply exited $rc: $out"
+[ "$(listing "$B")" = "20260201T000000 20260301T000000 20260401T000000 20260501T000000 " ] \
+  || fail "symlink apply left wrong tree: $(listing "$B")"
+[ -L "$B/20260501T000000" ] || fail "symlink apply removed the symlink"
+[ "$(cat "$TARGET/opencode.db")" = "keep" ] || fail "symlink apply touched the symlink target"
+ok "timestamp-named symlink is not counted, occupies no --keep slot; symlink and target survive --apply"
+
+# Oldest-named symlink, --keep 1 --apply: the symlink sorts first but is
+# never a deletion candidate; only real backups beyond the newest are
+# deleted and the symlink itself survives.
+B="$WORK/symlink-oldest"; mkdir -p "$B"
+for d in 20260201T000000 20260301T000000 20260401T000000; do
+  mkdir -p "$B/$d"; echo fixture > "$B/$d/opencode.db"
+done
+ln -s "$TARGET" "$B/20250101T000000"
+out="$(bash "$PRUNE" --dir "$B" --keep 1 --apply 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "oldest-symlink apply exited $rc: $out"
+[ "$(listing "$B")" = "20250101T000000 20260401T000000 " ] \
+  || fail "oldest-symlink apply left wrong tree: $(listing "$B")"
+[ -L "$B/20250101T000000" ] || fail "oldest-symlink apply deleted the symlink itself"
+ok "oldest-named symlink is never listed or deleted by --apply"
+
 # --- --keep 1: newest still never deleted ---------------------------------
 B="$WORK/one"; make_tree "$B"
 bash "$PRUNE" --dir "$B" --keep 1 --apply >/dev/null 2>&1

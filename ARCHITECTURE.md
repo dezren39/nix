@@ -70,8 +70,8 @@ flake.nix → ./configuration.nix
 - **Stack inputs:** determinate (Determinate Nix), nix-darwin, home-manager,
   mac-app-util, nix-homebrew (+ brew-src, homebrew-core/cask/bundle/services and
   third-party taps), NUR, fenix (Rust), treefmt-nix, just, nixpkgs-terraform,
-  `opencode` (github:developing-today/opencode, our fork) and `openchamber`
-  (github:developing-today/openchamber, our fork; its `opencode` follows ours).
+  `opencode` (github:developing-today-forks/opencode, our fork) and `openchamber`
+  (github:developing-today-forks/openchamber, our fork; its `opencode` follows ours).
 - **Input hygiene:** a heavy `follows` graph plus `nixpkgs-hoisted*` inputs keeps
   transitive nixpkgs deduplicated. This is maintained by the custom **flake-tidy**
   tool (§4).
@@ -197,12 +197,12 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 ### OpenCode and OpenChamber: our forks, no local patches
 
 OpenCode and OpenChamber are built from forks we own
-(developing-today/opencode and developing-today/openchamber, both `main`). Fixes
+(developing-today-forks/opencode and developing-today-forks/openchamber, both `main`). Fixes
 go into the fork, then the pins move up: opencode fork -> openchamber's lock ->
 this repo's lock. `.agents/skills/update-opencode` is the procedure. The old
 local patch stack was retired (TUI-only changes do not reach OpenChamber, the
-rest is covered by v2); remaining server-side gaps are developing-today/opencode#13
-and developing-today/openchamber#28.
+rest is covered by v2); remaining server-side gaps are developing-today-forks/opencode#13
+and developing-today-forks/openchamber#28.
 
 - **One database.** `~/.local/share/opencode/opencode.db` holds every session.
   The `opencode` wrapper forces `OPENCODE_DB` to it, and `OPENCODE_DB` is also
