@@ -130,7 +130,9 @@ lib.recursiveUpdate {
       # mcp-clients.py. Real files the clients also write, so only their MCP
       # key is set, on every switch. dezren39/nix#671.
       mcpClients = lib.hm.dag.entryAfter [ "mcpxConfig" ] ''
-        run ${pkgs.python3}/bin/python3 ${./mcp-clients.py} || true
+        run ${pkgs.bash}/bin/bash ${./mcp-clients-activation.sh} \
+          ${pkgs.python3}/bin/python3 ${./mcp-clients.py} \
+          ${lib.getExe' inputs.self.packages.${system}.service-events "service-event"}
       '';
       # installGhCopilot: gh copilot is now built into gh (>=2.65) and executes
       # the native `copilot` binary from PATH (managed via copilot-cli cask).
