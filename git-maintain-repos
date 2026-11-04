@@ -571,6 +571,12 @@ fi
 maint_failures=${#maint_failed_repos[@]}
 [ "$unnamed_worker_failure" -eq 0 ] || maint_failures=$((maint_failures + 1))
 rm -rf "$GMR_FAIL_DIR"
+# The fail dir is deleted; stop publishing to it (#1437). Registration
+# below counts its failures in-process (the OUTCOME_FAILURES loop), and
+# a still-set OUTCOME_FAIL_DIR would make outcome_fail recreate the
+# deleted dir (lib/common.sh mkdir -p) and publish records nothing
+# reads -- one leaked temp dir per registration-failing run.
+OUTCOME_FAIL_DIR=""
 
 # Per-repo registration (#1327): usage and --dry-run have always promised
 # `git maintenance register` + gc.auto 0 + maintenance.auto false per repo,

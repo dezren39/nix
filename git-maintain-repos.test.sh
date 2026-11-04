@@ -333,14 +333,28 @@ export HOME="$OLD_HOME"
 
 # A registration failure is named and changes the exit status: the
 # maintenance.config path is a directory, so register cannot write it.
+# The run's TMPDIR is isolated so the #1437 leak check below can see
+# every temp dir the driver creates.
 export HOME="$TMP_ROOT/home-regfail"
 mkdir -p "$HOME/.config/git/maintenance.config"
+OLD_TMPDIR="${TMPDIR:-}"
+export TMPDIR="$TMP_ROOT/regfail-tmp"
+mkdir -p "$TMPDIR"
 run --no-system --path "$REG" --quick
 [ "$STATUS" -ne 0 ] || fail "registration-failure run exited 0"
 case "$ERR" in
   *"registration failed for $REG/r1"*) echo "ok: registration failure names the repo on stderr" ;;
   *) fail "registration failure did not name the repo on stderr (got: $ERR)" ;;
 esac
+# #1437: the driver deletes its outcome fail dir after the fan-out
+# merge; registration outcome_fail calls must not recreate it (the
+# records would be read by nobody and the temp dir would leak).
+if compgen -G "$TMPDIR/git-maintain-repos-failures.*" > /dev/null; then
+  fail "registration-failure run leaked an outcome fail dir in TMPDIR"
+else
+  echo "ok: registration failure leaves no outcome fail dir in TMPDIR (#1437)"
+fi
+if [ -n "$OLD_TMPDIR" ]; then export TMPDIR="$OLD_TMPDIR"; else unset TMPDIR; fi
 export HOME="$OLD_HOME"
 
 # ─── Per-repo maintenance failures reach the exit code (#1331) ────
