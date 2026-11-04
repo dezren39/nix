@@ -10,9 +10,11 @@ name: flake packages build
 # to avoid building it twice.
 #
 # Main-only tier (#1172 removed the pull_request eval tier; #1178
-# removed its leftover job): push to main + nightly schedule +
-# workflow_dispatch run the full build, one matrix job per package,
-# fail-fast off so one broken package never hides another.
+# removed its leftover job; #1479 removed the push trigger, #1482):
+# the nightly schedule + workflow_dispatch run the full build, one
+# matrix job per package, fail-fast off so one broken package never
+# hides another. There is no per-merge build: a broken merge is
+# first built by the next nightly run (or a manual dispatch).
 
 on:
   schedule:
@@ -26,7 +28,7 @@ permissions:
 
 concurrency:
   # Same pattern as mcpx-nixbuild.yml: runs are keyed by run_id so a
-  # later merge can never cancel an earlier merge's verification.
+  # later run can never cancel an earlier run's verification.
   group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 

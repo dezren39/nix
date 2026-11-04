@@ -15,11 +15,11 @@ name: mcpx nix build
 # main-tier check (below).
 #
 # Main-only tier (#1172 removed the pull_request eval tier; #1178
-# removed its leftover job): push to main + nightly schedule +
-# workflow_dispatch run the full build. The push trigger is
-# restricted to branches: [main] and a small path set, and the
-# nightly backstop means nothing the old PR build covered can
-# vanish unnoticed — a break lands on main and the watcher files it.
+# removed its leftover job; #1479 removed the push trigger, #1482):
+# the nightly schedule + workflow_dispatch run the full build.
+# There is no per-merge build — a break lands on main and is first
+# built by the next nightly run (or a manual dispatch), and the
+# watcher files it from that run.
 
 on:
   schedule:
@@ -31,10 +31,10 @@ permissions:
   contents: read
 
 concurrency:
-  # Every run (push-to-main, nightly schedule, manual dispatch) gets
-  # its own group (keyed by run_id), so a later merge can never
-  # cancel — or displace a pending — verification run for an earlier
-  # merge: every merged tree gets its own completed build.
+  # Every run (nightly schedule, manual dispatch) gets its own
+  # group (keyed by run_id), so a later run can never cancel — or
+  # displace a pending — verification run for an earlier one: every
+  # scheduled or dispatched tree gets its own completed build.
   # (Downstream half of the cross-repo set tracked in
   # developing-today/code#392; the conditional cancel-in-progress
   # used by code's mcpx-conformance workflow would still let a third
