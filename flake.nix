@@ -1088,6 +1088,30 @@ rec {
               python3 ./mcp-clients.test.py
               touch $out
             '';
+        # #1449: exercise the actual home-manager activation wrapper and
+        # mcp-clients.py with a scratch HOME and a service-event stub. A
+        # partial enforcement must be durably reported without blocking the
+        # rest of activation; failure to record it must still fail activation.
+        mcp-clients-activation-tests =
+          pkgs.runCommandLocal "mcp-clients-activation-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gnugrep
+                pkgs.gnused
+                pkgs.python3
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/mcp-clients-activation.sh $src/mcp-clients-activation.test.sh $src/mcp-clients.py ./
+              chmod u+w ./mcp-clients-activation.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./mcp-clients-activation.test.sh
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used
