@@ -122,7 +122,12 @@ run() {
 }
 
 is_mounted() {
-  mount | grep -qF " on $1 (" 2>/dev/null
+  # NOTE (#1455): no grep -q here. Under pipefail, -q exits on the first
+  # match; when the match is early and mount is still writing, mount dies
+  # with SIGPIPE (141) and pipefail turns the pipeline into a failure, so
+  # a present mount reads as not mounted. A full-read grep consumes the
+  # whole stream, so mount always exits normally; mount output is small.
+  mount | grep -F " on $1 (" >/dev/null 2>&1
 }
 
 check_deps() {
