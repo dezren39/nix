@@ -37,7 +37,10 @@ Per-workflow application in this repo:
   test files, and a filter that misses one silently excludes that
   check (#1108).
 - `buffer-backup lock sync` — already light (plain python3/node, no
-  build); unchanged.
+  build); since #1481 it runs on a nightly `schedule` (08:07 UTC,
+  offset from the three build workflows' crons) plus
+  `workflow_dispatch` — no push/pull_request trigger, per the
+  2026-11-04 ruling (#1479 had left it dispatch-only).
 - `opencode` — a comment-triggered (`/oc`) bot, not a build check.
 - Scheduled singleton workflows keep `cancel-in-progress: false` by
   design (design §2.2: deliberately left alone): `branch-cleanup`
