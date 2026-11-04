@@ -180,10 +180,9 @@ fi
 # --unmount path with stateful stubs: stub `mount` reports the mounts
 # listed in $MOUNT_STATE, stub `umount` removes a mountpoint from that
 # state only when it succeeds, stub `rmdir` only logs its calls.
-# check_deps needs a macFUSE marker at an absolute path, so the run
-# either uses a real marker (macOS) or fakes one inside a user+mount
-# namespace (overlay over /usr). Where neither is available the
-# scenario is skipped explicitly, never silently passed.
+# check_deps normally needs a macFUSE marker at an absolute path. The
+# test-only marker override keeps this scenario runnable in the Nix sandbox;
+# real-marker and user+mount-namespace paths remain usable on developer hosts.
 start=$failures
 STUB_BIN="$TMP_ROOT/stub-bin"; mkdir -p "$STUB_BIN"
 UMOUNT_TARGET="$TMP_ROOT/umount-target"
@@ -192,14 +191,20 @@ touch "$UMOUNT_TARGET/plans/keep.md"
 export MOUNT_STATE="$TMP_ROOT/mount-state"
 export UMOUNT_LOG="$TMP_ROOT/umount-calls.log"
 export RMDIR_LOG="$TMP_ROOT/rmdir-calls.log"
-cat > "$STUB_BIN/mount" <<'STUB'
-#!/usr/bin/env bash
+BASH_BIN="$(command -v bash)"
+write_bash_stub() {
+  local path="$1"
+  printf '#!%s\n' "$BASH_BIN" > "$path"
+  cat >> "$path"
+}
+write_bash_stub "$STUB_BIN/mount" <<'STUB'
+mount_output=""
 while IFS= read -r mp; do
-  [[ -n "$mp" ]] && echo "bindfs on $mp (fuse, local)"
+  [[ -n "$mp" ]] && mount_output+="bindfs on $mp (fuse, local)"$'\n'
 done < "$MOUNT_STATE"
+printf '%s' "$mount_output"
 STUB
-cat > "$STUB_BIN/umount" <<'STUB'
-#!/usr/bin/env bash
+write_bash_stub "$STUB_BIN/umount" <<'STUB'
 echo "umount $*" >> "$UMOUNT_LOG"
 if [[ "${UMOUNT_RC:-0}" != "0" ]]; then
   exit "$UMOUNT_RC"
@@ -208,18 +213,15 @@ grep -v -F -x -- "$1" "$MOUNT_STATE" > "$MOUNT_STATE.tmp" || true
 mv "$MOUNT_STATE.tmp" "$MOUNT_STATE"
 exit 0
 STUB
-cat > "$STUB_BIN/bindfs" <<'STUB'
-#!/usr/bin/env bash
+write_bash_stub "$STUB_BIN/bindfs" <<'STUB'
 exit 0
 STUB
-cat > "$STUB_BIN/rmdir" <<'STUB'
-#!/usr/bin/env bash
+write_bash_stub "$STUB_BIN/rmdir" <<'STUB'
 echo "rmdir $*" >> "$RMDIR_LOG"
 exit 0
 STUB
 chmod +x "$STUB_BIN/mount" "$STUB_BIN/umount" "$STUB_BIN/bindfs" "$STUB_BIN/rmdir"
-cat > "$TMP_ROOT/fake-macfuse.sh" <<'STUB'
-#!/usr/bin/env bash
+write_bash_stub "$TMP_ROOT/fake-macfuse.sh" <<'STUB'
 set -e
 mount -t overlay overlay -o lowerdir=/usr,upperdir="$1",workdir="$2" /usr
 mkdir -p /usr/local/lib
@@ -232,9 +234,13 @@ k_mode=""
 if [[ -d "/Library/Filesystems/macfuse.fs" || -f "/usr/local/lib/libfuse.dylib" || -f "/opt/homebrew/lib/libfuse.dylib" ]]; then
   k_mode="direct"
 else
+  FAKE_MACFUSE_MARKER="$TMP_ROOT/fake-macfuse-marker"
+  : > "$FAKE_MACFUSE_MARKER"
   mkdir -p "$TMP_ROOT/ov-probe-up" "$TMP_ROOT/ov-probe-work"
   if unshare -rm bash "$TMP_ROOT/fake-macfuse.sh" "$TMP_ROOT/ov-probe-up" "$TMP_ROOT/ov-probe-work" true 2>/dev/null; then
     k_mode="namespace"
+  else
+    k_mode="injected"
   fi
 fi
 run_k() {
@@ -243,41 +249,50 @@ run_k() {
   : > "$UMOUNT_LOG"; : > "$RMDIR_LOG"
   mkdir -p "$UMOUNT_TARGET/.opencode"
   if [[ "$k_mode" == "direct" ]]; then
-    PATH="$STUB_BIN:$PATH" bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1
-  else
+    env -u OPENCODE_SHARE_TEST_MACFUSE_MARKER PATH="$STUB_BIN:$PATH" \
+      bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1
+  elif [[ "$k_mode" == "namespace" ]]; then
     local up="$TMP_ROOT/ov-up-$1-$RANDOM" work="$TMP_ROOT/ov-work-$1-$RANDOM"
     mkdir -p "$up" "$work"
     unshare -rm bash "$TMP_ROOT/fake-macfuse.sh" "$up" "$work" \
-      env PATH="$STUB_BIN:$PATH" bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1
+      env -u OPENCODE_SHARE_TEST_MACFUSE_MARKER PATH="$STUB_BIN:$PATH" \
+      bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1
+  else
+    OPENCODE_SHARE_TEST_MACFUSE_MARKER="$FAKE_MACFUSE_MARKER" \
+      PATH="$STUB_BIN:$PATH" bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1
   fi
 }
-if [[ -z "$k_mode" ]]; then
-  echo "SKIP: K: cannot fake the macFUSE marker (no real marker, no usable user namespace); failing-umount scenario not run"
-else
-  out_k="$(run_k 1)"; rc_k=$?
-  [[ $rc_k -ne 0 ]] || fail "K: failing umount expected non-zero exit, got $rc_k"
-  grep -q "Failed to unmount plans overlay: $UMOUNT_TARGET/.opencode/plans" <<<"$out_k" || fail "K: plans-overlay failure not named on stderr"
-  grep -q "Failed to unmount .opencode: $UMOUNT_TARGET/.opencode" <<<"$out_k" || fail "K: outer-mount failure not named on stderr"
-  grep -q "1 target(s) had errors" <<<"$out_k" || fail "K: target not counted as an error in the summary"
-  if grep -q "Unmounted .opencode from" <<<"$out_k"; then
-    fail "K: still-mounted target reported as Unmounted (regression)"
-  fi
-  if grep -q "Done (unmount" <<<"$out_k"; then
-    fail "K: success Done line printed for a failed unmount (regression)"
-  fi
-  grep -q "umount $UMOUNT_TARGET/.opencode/plans" "$UMOUNT_LOG" || fail "K: plans umount was never attempted"
-  grep -q "umount $UMOUNT_TARGET/.opencode" "$UMOUNT_LOG" || fail "K: outer umount was never attempted"
-  if [[ -s "$RMDIR_LOG" ]]; then
-    fail "K: rmdir ran against a still-mounted directory (regression)"
-  fi
-  grep -q "Project plans preserved" <<<"$out_k" || fail "K: plans-preserved line missing on the failure path"
-  out_k2="$(run_k 0)"; rc_k2=$?
-  [[ $rc_k2 -eq 0 ]] || fail "K: successful umount control expected exit 0, got $rc_k2"
-  grep -q "Unmounted .opencode from $UMOUNT_TARGET" <<<"$out_k2" || fail "K: successful control did not report Unmounted"
-  grep -q "Done (unmount 1 target(s))" <<<"$out_k2" || fail "K: successful control missing the Done line"
-  [[ -s "$RMDIR_LOG" ]] || fail "K: successful control did not rmdir the empty, unmounted mount point"
-  [[ $failures -eq $start ]] && ok "K: failing umount exits non-zero, names both failures, counts the target, no Unmounted/rmdir; successful control unchanged"
+if [[ "$k_mode" != "direct" ]]; then
+  out_k_negative="$(env -u OPENCODE_SHARE_TEST_MACFUSE_MARKER PATH="$STUB_BIN:$PATH" \
+    bash "$SCRIPT" --unmount --source "$SRC" "$UMOUNT_TARGET" 2>&1)"
+  rc_k_negative=$?
+  [[ $rc_k_negative -ne 0 ]] || fail "K: without a real or injected marker, check_deps expected failure"
+  grep -q "macFUSE — install via:" <<<"$out_k_negative" || fail "K: negative control did not name missing macFUSE"
 fi
+
+out_k="$(run_k 1)"; rc_k=$?
+[[ $rc_k -ne 0 ]] || fail "K: failing umount expected non-zero exit, got $rc_k"
+grep -q "Failed to unmount plans overlay: $UMOUNT_TARGET/.opencode/plans" <<<"$out_k" || fail "K: plans-overlay failure not named on stderr"
+grep -q "Failed to unmount .opencode: $UMOUNT_TARGET/.opencode" <<<"$out_k" || fail "K: outer-mount failure not named on stderr; output: $out_k"
+grep -q "1 target(s) had errors" <<<"$out_k" || fail "K: target not counted as an error in the summary"
+if grep -q "Unmounted .opencode from" <<<"$out_k"; then
+  fail "K: still-mounted target reported as Unmounted (regression)"
+fi
+if grep -q "Done (unmount" <<<"$out_k"; then
+  fail "K: success Done line printed for a failed unmount (regression)"
+fi
+grep -q "umount $UMOUNT_TARGET/.opencode/plans" "$UMOUNT_LOG" || fail "K: plans umount was never attempted"
+grep -q "umount $UMOUNT_TARGET/.opencode" "$UMOUNT_LOG" || fail "K: outer umount was never attempted"
+if [[ -s "$RMDIR_LOG" ]]; then
+  fail "K: rmdir ran against a still-mounted directory (regression)"
+fi
+grep -q "Project plans preserved" <<<"$out_k" || fail "K: plans-preserved line missing on the failure path"
+out_k2="$(run_k 0)"; rc_k2=$?
+[[ $rc_k2 -eq 0 ]] || fail "K: successful umount control expected exit 0, got $rc_k2"
+grep -q "Unmounted .opencode from $UMOUNT_TARGET" <<<"$out_k2" || fail "K: successful control did not report Unmounted"
+grep -q "Done (unmount 1 target(s))" <<<"$out_k2" || fail "K: successful control missing the Done line"
+[[ -s "$RMDIR_LOG" ]] || fail "K: successful control did not rmdir the empty, unmounted mount point"
+[[ $failures -eq $start ]] && ok "K: failing umount exits non-zero, names both failures, counts the target, no Unmounted/rmdir; successful control unchanged"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
