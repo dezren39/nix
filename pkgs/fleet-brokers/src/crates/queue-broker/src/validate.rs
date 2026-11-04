@@ -9,11 +9,12 @@ use serde_json::{Value, json};
 
 pub const PRIORITY_SCALE: [i64; 7] = [10, 20, 30, 40, 50, 70, 90];
 pub const KINDS: [&str; 4] = ["pr_shepherd", "triage", "small_fix", "ci_investigation"];
-pub const FLEET_REPOS: [&str; 6] = [
+pub const FLEET_REPOS: [&str; 7] = [
     "developing-today/code",
     "developing-today/opencode",
     "developing-today/openchamber",
     "dezren39/nix",
+    "dezren39/darwin-nix",
     "developing-today/zettel",
     "dezren39/dezren39",
 ];

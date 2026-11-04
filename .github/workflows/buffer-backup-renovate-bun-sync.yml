@@ -38,7 +38,7 @@ name: buffer-backup renovate bun sync
 # here uses a dedicated fine-grained PAT stored as the repo Actions
 # secret RENOVATE_BUN_SYNC_TOKEN (secret NAME only — the value lives
 # only in GitHub's secret store):
-#   - repository access: dezren39/nix only
+#   - repository access: dezren39/darwin-nix only
 #   - permissions: Contents: read and write (nothing else)
 #   - created/owned by Drew; expiry is his call at creation time
 # Checkout and the lock check use the default token with
@@ -167,7 +167,7 @@ jobs:
           SYNC_TOKEN: ${{ secrets.RENOVATE_BUN_SYNC_TOKEN }}
         run: |
           if [ -z "$SYNC_TOKEN" ]; then
-            echo "::error::Repo Actions secret RENOVATE_BUN_SYNC_TOKEN is not set. Drew: create a fine-grained PAT scoped to dezren39/nix only with Contents: read and write, and store it under that exact secret name (see the header of .github/workflows/buffer-backup-renovate-bun-sync.yml and #1060)."
+            echo "::error::Repo Actions secret RENOVATE_BUN_SYNC_TOKEN is not set. Drew: create a fine-grained PAT scoped to dezren39/darwin-nix only with Contents: read and write, and store it under that exact secret name (see the header of .github/workflows/buffer-backup-renovate-bun-sync.yml and #1060)."
             exit 1
           fi
 
