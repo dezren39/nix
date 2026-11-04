@@ -21,7 +21,7 @@ name: main-broken watcher
 #
 # Hybrid pm-dispatch migration (developing-today/code#2672): the issue
 # creation stays in this workflow because the pm-stack GitHub App is
-# not installed on dezren39/nix, so pm-dispatch cannot create issues
+# not installed on dezren39/darwin-nix, so pm-dispatch cannot create issues
 # here. The queue enqueue calls pm-dispatch directly, so the fix task
 # exists at filing time instead of waiting for the fleet monitor to
 # enqueue it from the `queue/queued` label. If that enqueue step
@@ -159,7 +159,7 @@ jobs:
 
       # HYBRID (developing-today/code#2672): the issue was created by
       # the step above (the pm-stack GitHub App is not installed on
-      # dezren39/nix, so pm-dispatch cannot create issues here), and
+      # dezren39/darwin-nix, so pm-dispatch cannot create issues here), and
       # this step enqueues the fix task against that existing issue
       # (issue_number takes precedence; no new issue is created).
       # Priority: main-broken breakages are TOP priority in the fleet
@@ -171,7 +171,7 @@ jobs:
         if: steps.file.outputs.issue_number != ''
         continue-on-error: true
         env:
-          INPUT_REPO: dezren39/nix
+          INPUT_REPO: dezren39/darwin-nix
           INPUT_TITLE: ${{ steps.file.outputs.issue_title }}
           ISSUE_NUMBER: ${{ steps.file.outputs.issue_number }}
           ISSUE_URL: ${{ steps.file.outputs.issue_url }}
@@ -192,7 +192,7 @@ jobs:
             exit 1
           fi
           prompt_text="$(cat <<EOF
-          Investigate and fix the main breakage filed as dezren39/nix issue #${ISSUE_NUMBER} (${ISSUE_URL}).
+          Investigate and fix the main breakage filed as dezren39/darwin-nix issue #${ISSUE_NUMBER} (${ISSUE_URL}).
 
           Workflow: ${WORKFLOW_NAME}
           Run: ${RUN_URL}
@@ -268,7 +268,7 @@ jobs:
               echo "\`queue/queued\` label and the fleet monitor should enqueue"
               echo "the fix packet from it, as before this migration."
             fi
-            echo "No Jules step exists for dezren39/nix (Jules is retired"
+            echo "No Jules step exists for dezren39/darwin-nix (Jules is retired"
             echo "fleet-wide in workflows; the direct-to-queue handoff is the"
             echo "design), so the chain (filing) holder releases the breakage"
             echo "to the fleet queue at filing time."

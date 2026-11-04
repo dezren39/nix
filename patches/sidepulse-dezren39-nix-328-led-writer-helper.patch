@@ -1,6 +1,6 @@
-SidePulse patch 6/12 -- local, dezren39/nix#328.
+SidePulse patch 6/12 -- local, dezren39/darwin-nix#328.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-pr-30-stuck-status.patch, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/pyproject.toml b/pyproject.toml
 index 8ac1322..a3e8c11 100644

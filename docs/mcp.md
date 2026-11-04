@@ -31,7 +31,7 @@ date in its heading; re-run its checks before relying on them.
     `push_files`, `create_or_update_file`, `delete_file` and `merge_pull_request`;
     `datadog` hides `delete_*`, `execute_code`, `execute_datadog_workflow` and the
     tools that change live monitors, dashboards and workflows (`excludeTools`,
-    dezren39/nix#664). Issue and PR tools stay.
+    dezren39/darwin-nix#664). Issue and PR tools stay.
 - **Only the launchd agent starts a daemon** (`daemon.autostart = false`). See
   `services.md`.
 - **Smoke test.** `just mcpx-check` lists every server's state and calls one tool

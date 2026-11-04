@@ -4,7 +4,7 @@ As a command (`service-event SOURCE EVENT [key=value ...]`) it is how the
 switch script, home-manager activation and the agents' start wrappers record
 what they do; monitor.py imports the same functions. Values that look like
 integers are stored as numbers, everything else as strings. Never pass a
-secret: this log is meant to be read and pasted into issues. dezren39/nix#670.
+secret: this log is meant to be read and pasted into issues. dezren39/darwin-nix#670.
 """
 
 import datetime

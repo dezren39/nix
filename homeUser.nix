@@ -128,7 +128,7 @@ lib.recursiveUpdate {
       # Every other MCP client (Copilot CLI, Claude Code, Codex, Zed) gets mcpx
       # as its only MCP server, `mcpx --config <that file> serve`; see
       # mcp-clients.py. Real files the clients also write, so only their MCP
-      # key is set, on every switch. dezren39/nix#671.
+      # key is set, on every switch. dezren39/darwin-nix#671.
       mcpClients = lib.hm.dag.entryAfter [ "mcpxConfig" ] ''
         run ${pkgs.bash}/bin/bash ${./mcp-clients-activation.sh} \
           ${pkgs.python3}/bin/python3 ${./mcp-clients.py} \

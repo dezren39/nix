@@ -6,7 +6,7 @@ what was found and left open, and what turned out to be wrong along the way.
 `just switch` applied it (generation 304 was active).** It is a snapshot, not a
 status page. The durable mechanisms are in [`services.md`](services.md) and
 [`mcp.md`](mcp.md). Each open problem below became an issue on 2026-10-22,
-tracked in dezren39/nix#672.
+tracked in dezren39/darwin-nix#672.
 
 Facts marked *(audit)* come from three read-only investigations run that day.
 They covered OpenChamber, OpenCode and mcpx reliability; the MCP servers and their

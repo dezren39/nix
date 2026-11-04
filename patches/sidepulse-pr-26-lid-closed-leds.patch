@@ -1,6 +1,6 @@
 SidePulse patch 3/12 -- upstream PR inteliwear/sidepulse#26 "Add closed-lid LED idle setting and a Clear Agents menu action" (open); its settings checkbox lives in a local LEDs tab since upstream 441ed38 removed the Devices tab.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-pr-17-status-bar-runtime.patch, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/README.md b/README.md
 index 5ab44f9..2af4d15 100644

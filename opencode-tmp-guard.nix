@@ -8,7 +8,7 @@
 # HEAD and config, a worktree's .git pointer file. On 2026-10-17 it broke 9
 # clones and 2 worktrees that agents had put in $TMPDIR/opencode, because
 # opencode advertises os.tmpdir()/opencode as approved scratch space
-# (dezren39/nix#377). Its plist is under SIP and the same service creates the
+# (dezren39/darwin-nix#377). Its plist is under SIP and the same service creates the
 # per-user temp directories, so it is worked around rather than disabled.
 #
 # The real fix is the opencode wrapper in flake.nix (TMPDIR defaults to

@@ -63,7 +63,7 @@ openchamber-rotate-credentials:
     #!/usr/bin/env bash
     # OpenChamber reuses both across restarts on purpose, so only a start with
     # no saved state makes new ones (docs/services.md, "Credentials these
-    # services hold"; dezren39/nix#660). This interrupts running OpenCode turns.
+    # services hold"; dezren39/darwin-nix#660). This interrupts running OpenCode turns.
     # Values are never printed: only SHA-256 hashes are compared.
     set -euo pipefail
     state="$HOME/.config/openchamber/managed-opencode/state.json"

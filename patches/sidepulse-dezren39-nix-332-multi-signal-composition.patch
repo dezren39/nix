@@ -1,6 +1,6 @@
-SidePulse patch 10/12 -- local, dezren39/nix#332.
+SidePulse patch 10/12 -- local, dezren39/darwin-nix#332.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-331-errors-and-prompts-persist.patch, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/src/sidepulse/compose.py b/src/sidepulse/compose.py
 new file mode 100644

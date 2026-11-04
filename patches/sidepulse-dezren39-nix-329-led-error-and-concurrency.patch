@@ -1,6 +1,6 @@
-SidePulse patch 7/12 -- local, dezren39/nix#329.
+SidePulse patch 7/12 -- local, dezren39/darwin-nix#329.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-328-led-writer-helper.patch, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/profiles/cyan.json b/profiles/cyan.json
 index 5deda21..3ce7ec1 100644

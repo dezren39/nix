@@ -13,7 +13,7 @@ let
   # command (`eval "$(opencode completion)"` took the word as a directory),
   # and `--get-yargs-completions` prints the general help instead of
   # candidates (checked 2026-10-26 on 2.0.30), so a hook calling either one
-  # offers nothing useful (dezren39/nix#666).
+  # offers nothing useful (dezren39/darwin-nix#666).
   opencodeCompletions =
     shell:
     pkgs.runCommand "opencode-${shell}-completion" { } ''
@@ -31,7 +31,7 @@ let
     cargo-build-debug = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build 2>&1";
     # Copilot CLI's built-in GitHub MCP server bypasses mcpx, and it has no
     # config key to turn it off, only this flag. Its MCP servers come from
-    # mcpx alone (mcp-clients.py; dezren39/nix#671).
+    # mcpx alone (mcp-clients.py; dezren39/darwin-nix#671).
     copilot = "copilot --disable-builtin-mcps";
   };
 

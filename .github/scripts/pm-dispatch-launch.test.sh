@@ -77,7 +77,7 @@ chmod +x "$work/bin/curl"
 run_launch() { # extra env assignments as args; sets rc, out, err
   : > "$work/github-output"
   env -i PATH="$work/bin:$PATH" HOME="$work" \
-    INPUT_REPO="dezren39/nix" INPUT_TASK="bolt" \
+    INPUT_REPO="dezren39/darwin-nix" INPUT_TASK="bolt" \
     INPUT_PROMPT_URL="https://example.test/prompts/bolt.md" \
     ACTIONS_ID_TOKEN_REQUEST_URL="https://example.test/oidc?tok=req" \
     ACTIONS_ID_TOKEN_REQUEST_TOKEN="req-token" \
@@ -94,10 +94,10 @@ rc=$(run_launch)
 grep -qx 'task_id=T-1' "$work/github-output"; check "output task_id" "$?"
 grep -qx 'session_id=S-1' "$work/github-output"; check "output session_id" "$?"
 grep -qx 'issue_number=42' "$work/github-output"; check "output issue_number" "$?"
-grep -qx 'issue_url=https://github.com/dezren39/nix/issues/42' "$work/github-output"
+grep -qx 'issue_url=https://github.com/dezren39/darwin-nix/issues/42' "$work/github-output"
 check "output issue_url derived from repo + number" "$?"
-[ "$(jq -r .repo "$work/payload.json")" = "dezren39/nix" ]; check "payload repo" "$?"
-[ "$(jq -r .title "$work/payload.json")" = "Scheduled Bolt — dezren39/nix" ]
+[ "$(jq -r .repo "$work/payload.json")" = "dezren39/darwin-nix" ]; check "payload repo" "$?"
+[ "$(jq -r .title "$work/payload.json")" = "Scheduled Bolt — dezren39/darwin-nix" ]
 check "payload title is Scheduled <Capitalized task> — <repo>" "$?"
 [ "$(jq -r .prompt "$work/payload.json")" = "stub prompt body" ]; check "payload prompt is the fetched prompt" "$?"
 [ "$(jq -r .wait "$work/payload.json")" = "true" ]; check "payload wait is true" "$?"
@@ -123,7 +123,7 @@ check "empty prompt error says so" "$?"
 # --- missing OIDC env -----------------------------------------------------------
 : > "$work/github-output"
 env -i PATH="$work/bin:$PATH" HOME="$work" \
-  INPUT_REPO="dezren39/nix" INPUT_TASK="bolt" \
+  INPUT_REPO="dezren39/darwin-nix" INPUT_TASK="bolt" \
   INPUT_PROMPT_URL="https://example.test/prompts/bolt.md" \
   GITHUB_OUTPUT="$work/github-output" \
   bash "$SCRIPT" > "$work/out" 2> "$work/err"

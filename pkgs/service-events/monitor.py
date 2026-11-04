@@ -5,7 +5,7 @@ INTERVAL seconds it samples launchd, the process table and the TCP
 connections of the servers it watches, and appends one JSON object per change
 to ~/Library/Logs/nix-services/events.jsonl. `service-event` (event.py)
 appends to the same file from scripts. Read it with `just service-events`;
-docs/services.md describes every event. dezren39/nix#670.
+docs/services.md describes every event. dezren39/darwin-nix#670.
 
 Only names, pids, ports and exit codes are recorded. No environment, command
 argument values beyond the program name, or request contents.
@@ -51,7 +51,7 @@ LABEL_PREFIXES = ("application.dev.openchamber.desktop",)
 
 # Logs written by launchd (StandardOutPath/StandardErrorPath, opened
 # O_APPEND, so a copy followed by truncation in place is safe) or by
-# OpenChamber itself. Size-bounded here; dezren39/nix#668.
+# OpenChamber itself. Size-bounded here; dezren39/darwin-nix#668.
 ROTATED_LOGS = (
     "~/Library/Logs/openchamber.log",
     "~/Library/Logs/mcpx.log",

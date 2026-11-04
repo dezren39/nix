@@ -46,7 +46,7 @@
 # answer, which is every script, waits out elicit.askTimeout and then the call
 # proceeds anyway (internal/settings/consumer.go), so it would add a delay and
 # stop nothing. Hiding the dangerous tools protects every caller
-# (dezren39/nix#664).
+# (dezren39/darwin-nix#664).
 # Changing the URL is a new identity to mcp-remote and needs `just mcp-login
 # datadog` again.
 { lib }:
@@ -204,7 +204,7 @@ let
     # contents or merges goes through git and the normal PR merge path
     # instead, where hooks, signing and branch protection apply: push_files,
     # create_or_update_file, delete_file and merge_pull_request are hidden
-    # (dezren39/nix#371, #664).
+    # (dezren39/darwin-nix#371, #664).
     github.excludeTools = [
       "create_repository"
       "fork_repository"
@@ -219,7 +219,7 @@ let
     # that deletes, runs arbitrary actions (execute_code runs JavaScript
     # against the Datadog API; execute_datadog_workflow runs a workflow), or
     # changes a live production object -- monitors, dashboards, published
-    # workflows (dezren39/nix#664). Filtered by mcpx, so the server URL, and
+    # workflows (dezren39/darwin-nix#664). Filtered by mcpx, so the server URL, and
     # with it the OAuth sign-in, is unchanged.
     datadog.excludeTools = [
       "delete_*"

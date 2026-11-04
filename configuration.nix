@@ -101,7 +101,7 @@ lib.recursiveUpdate {
   # started at login without them, ran its own server (0.0.0.0:57123) and
   # OpenCode next to the launchd agent's, and the two managers killed each
   # other's OpenCode every 30 minutes through the shared
-  # ~/.config/openchamber/managed-opencode state (dezren39/nix#670). Exported
+  # ~/.config/openchamber/managed-opencode state (dezren39/darwin-nix#670). Exported
   # here they are in every login shell, so the app always attaches to the
   # agent's server instead.
   environment.variables.OPENCHAMBER_SERVER_URL = "http://127.0.0.1:3000";
@@ -1064,7 +1064,7 @@ lib.recursiveUpdate {
         ProgramArguments = [ mcpxAgentPath ];
         # Not /tmp: that is emptied at boot, taking the evidence of what went
         # wrong before it. service-monitor size-bounds this file
-        # (dezren39/nix#668).
+        # (dezren39/darwin-nix#668).
         StandardErrorPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
         StandardOutPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
       };
@@ -1075,7 +1075,7 @@ lib.recursiveUpdate {
     # their servers drop and regain, with timestamps; plus what the switch
     # and the agents' wrappers record through `service-event`. It also
     # size-bounds the agents' logs. Read it with `just service-events`;
-    # docs/services.md lists the events (dezren39/nix#670, #668).
+    # docs/services.md lists the events (dezren39/darwin-nix#670, #668).
     service-events = {
       serviceConfig = {
         ProgramArguments = [ "${serviceEvents}/bin/service-monitor" ];

@@ -1625,7 +1625,7 @@ rec {
         # The default shell pulls this repo's own from-source builds
         # (selfPkgs.opencode), which a CI export job has to
         # compile from scratch — that realisation ran 2h+ and died
-        # (dezren39/nix#1381). Everything below substitutes from
+        # (dezren39/darwin-nix#1381). Everything below substitutes from
         # cache.nixos.org instead: same tools, no local builds.
         fleet = pkgs.mkShell {
           packages = [

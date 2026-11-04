@@ -15,8 +15,8 @@ python3Packages.buildPythonApplication rec {
   # revision used by this ordered patch stack (ffb1d3c, 2026-10-13). Patches
   # named `sidepulse-pr-N` carry upstream PR inteliwear/sidepulse#N; patches
   # named `sidepulse-dezren39-nix-N` are local and documented in
-  # dezren39/nix#N. Each patch's header records its source and base, and all
-  # apply at zero fuzz. Porting history: dezren39/nix#327.
+  # dezren39/darwin-nix#N. Each patch's header records its source and base, and all
+  # apply at zero fuzz. Porting history: dezren39/darwin-nix#327.
   src = sidepulseSrc;
 
   patches = [

@@ -45,7 +45,7 @@ The terminal UI runs its own shared OpenCode service (`opencode serve --service`
 state in `~/.local/state/opencode/service.json`), separate from OpenChamber's. The
 first terminal client starts it detached, in its own process group with no
 terminal, so closing that terminal does not stop it; it is reparented to launchd
-and has no idle exit (dezren39/nix#669).
+and has no idle exit (dezren39/darwin-nix#669).
 Both open the one database `~/.local/share/opencode/opencode.db` (`OPENCODE_DB`,
 forced by the wrapper in `flake.nix`).
 
@@ -62,7 +62,7 @@ v2 still reads v1's `small_model` and turns it into the `title` agent's model
 (`packages/core/src/config/normalize.ts`), so a `small_model` left in the live
 file makes the premium model write every session title. Leave it out, as the
 repo file does, and Copilot titles sessions with its free utility model
-(dezren39/nix#661).
+(dezren39/darwin-nix#661).
 
 ## How a switch reaches each one
 
@@ -98,7 +98,7 @@ once. `home.activation.openchamberDeploy` decides instead:
 
 The start script names mcpx, git and openssh through `/run/current-system/sw/bin`,
 not their store paths, so updating them no longer changes the deploy key. Before
-dezren39/nix#663 every mcpx update restarted OpenChamber.
+dezren39/darwin-nix#663 every mcpx update restarted OpenChamber.
 
 ### OpenCode (handover)
 
@@ -218,7 +218,7 @@ this check only run on `just switch`, which needs sudo and the user.
 
 ## What a deploy does to connections
 
-Investigated 2026-10-22 (dezren39/nix#670) from `~/Library/Logs/OpenChamber/main.log`,
+Investigated 2026-10-22 (dezren39/darwin-nix#670) from `~/Library/Logs/OpenChamber/main.log`,
 `~/Library/Logs/openchamber.log`, `~/.local/share/opencode/log/opencode.log` and
 the process table.
 

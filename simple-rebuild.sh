@@ -550,7 +550,7 @@ phase_activate() {
     # The activation's output is kept, and its start and end recorded in the
     # service event log: three switches on 2026-10-22 registered generations
     # 305-307 and never made them current, and nothing said where they
-    # stopped (dezren39/nix#656, #670).
+    # stopped (dezren39/darwin-nix#656, #670).
     local log_dir="$HOME/Library/Logs/nix-services" log
     mkdir -p "$log_dir"
     log="$log_dir/switch-$(date +%Y%m%dT%H%M%S).log"
@@ -616,7 +616,7 @@ phase_activate() {
 #   readlink    /nix/var/nix/profiles/system  -> system-283-link  (the number)
 #   readlink -f /nix/var/nix/profiles/system  -> /nix/store/...   (the closure)
 # Append to the service event log (~/Library/Logs/nix-services/events.jsonl,
-# dezren39/nix#670). Prefers the new build's service-event, since the running
+# dezren39/darwin-nix#670). Prefers the new build's service-event, since the running
 # system may predate it; never fails the switch.
 service_event() {
   local bin=./result/sw/bin/service-event

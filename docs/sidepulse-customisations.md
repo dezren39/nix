@@ -7,14 +7,14 @@ where each patch comes from:
 | File name | Source |
 | --- | --- |
 | `sidepulse-pr-N-*.patch` | upstream pull request inteliwear/sidepulse#N (14, 17, 26 open; 28, 30 closed unmerged). #29 (idle LEDs off) was dropped 2026-10-02: the same result is the `immediate-off` idle style in settings |
-| `sidepulse-dezren39-nix-N-*.patch` | local, no upstream counterpart; documented in dezren39/nix#N |
+| `sidepulse-dezren39-nix-N-*.patch` | local, no upstream counterpart; documented in dezren39/darwin-nix#N |
 
 The local patches are #328 (fixed-path LED writer helper), #329 (red error
 signal, error latch, completion pulse, concurrency tempo), #330–#333, and #378
 (the generated OpenCode plugin in the v2 shape), which this page covers along
 with the live configuration they work with. Until
 2026-10-01 the local patches were also named `sidepulse-pr-31` … `-36`, numbers
-that belong to unrelated upstream PRs. Porting history: dezren39/nix#327.
+that belong to unrelated upstream PRs. Porting history: dezren39/darwin-nix#327.
 
 For the hardware constraints every LED change works within, see
 [`sidepulse-leds.md`](./sidepulse-leds.md).
@@ -33,7 +33,7 @@ things follow from that which these patches address:
 3. Only one signal could be shown. With errors and prompts no longer expiring,
    several are routinely true at once, and priority alone discards the rest.
 
-## dezren39/nix#330 — hold the completion until it is seen
+## dezren39/darwin-nix#330 — hold the completion until it is seen
 
 `patches/sidepulse-dezren39-nix-330-completion-hold-until-seen.patch`
 
@@ -87,7 +87,7 @@ revert to the original 4-second pulse.
 22 terminal and editor bundle ids are recognised, plus prefix matching for
 `com.jetbrains.*` and `com.todesktop.*` (Cursor's generated id).
 
-## dezren39/nix#331 — failures and prompts stop expiring
+## dezren39/darwin-nix#331 — failures and prompts stop expiring
 
 `patches/sidepulse-dezren39-nix-331-errors-and-prompts-persist.patch`
 
@@ -165,7 +165,7 @@ away a prompt that matters.
 and sidepulse keys everything by session, so a skill-load or plugin-load
 failure will not light red. Fixing it means inventing a synthetic session id.
 
-## dezren39/nix#332 — several signals at once
+## dezren39/darwin-nix#332 — several signals at once
 
 `patches/sidepulse-dezren39-nix-332-multi-signal-composition.patch`
 
@@ -210,7 +210,7 @@ voice in the rotation rather than the whole device. That is the point of
 composing, but it is a real change to a previously absolute rule, and arrivals
 are what restore urgency its moment.
 
-## dezren39/nix#333 — a colour has to mean what it says
+## dezren39/darwin-nix#333 — a colour has to mean what it says
 
 Patches #330–#332 made signals persist and made several of them visible at once.
 That was the right direction and it exposed what was underneath: the rules
@@ -283,7 +283,7 @@ on the next refresh. Green now tracks the completion signal and nothing else.
 - The timed 4-second pulse survives only where presence genuinely cannot be
   read, and that is now decided by trying to read it rather than by a setting.
 
-## dezren39/nix#378 — the OpenCode plugin in the v2 shape
+## dezren39/darwin-nix#378 — the OpenCode plugin in the v2 shape
 
 `patches/sidepulse-dezren39-nix-378-opencode-v2-plugin.patch`
 

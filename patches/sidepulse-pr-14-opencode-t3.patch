@@ -1,6 +1,6 @@
 SidePulse patch 1/12 -- upstream PR inteliwear/sidepulse#14 "Add OpenCode and T3 Code support" (open).
 Applies to inteliwear/sidepulse ffb1d3c directly, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/README.md b/README.md
 index 6e21ee2..5ab44f9 100644

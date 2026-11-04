@@ -11,7 +11,7 @@ it looks for, and with daemon.autostart off nothing is listening there.
 Only the MCP key of each file is changed; everything else is kept. The first
 time a file is changed, a copy is kept in ~/.local/state/mcp-clients/backup.
 Files that do not exist are left alone (the client is not set up here).
-`--dry-run` reports what would change; `--help` prints usage. dezren39/nix#671.
+`--dry-run` reports what would change; `--help` prints usage. dezren39/darwin-nix#671.
 
 Each client is handled independently: one client's malformed or unreadable
 file is reported on stderr and the remaining clients are still enforced;

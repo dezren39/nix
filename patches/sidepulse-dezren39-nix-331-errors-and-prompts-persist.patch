@@ -1,6 +1,6 @@
-SidePulse patch 9/12 -- local, dezren39/nix#331.
+SidePulse patch 9/12 -- local, dezren39/darwin-nix#331.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-330-completion-hold-until-seen.patch, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
 index ec5512f..05a02a4 100644

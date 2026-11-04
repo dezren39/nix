@@ -1,6 +1,6 @@
 # service-monitor (the org.nixos.service-events agent) and service-event (one
 # event from a script), both writing ~/Library/Logs/nix-services/events.jsonl.
-# See monitor.py and docs/services.md; dezren39/nix#670.
+# See monitor.py and docs/services.md; dezren39/darwin-nix#670.
 {
   runCommand,
   python3,

@@ -1,6 +1,6 @@
-SidePulse patch 12/12 -- local, dezren39/nix#378.
+SidePulse patch 12/12 -- local, dezren39/darwin-nix#378.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-333-signals-mean-what-they-say.patch, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/src/sidepulse/install.py b/src/sidepulse/install.py
 index e234725..115648e 100644

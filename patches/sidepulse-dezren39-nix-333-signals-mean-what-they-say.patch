@@ -1,6 +1,6 @@
-SidePulse patch 11/12 -- local, dezren39/nix#333.
+SidePulse patch 11/12 -- local, dezren39/darwin-nix#333.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-332-multi-signal-composition.patch, at zero fuzz.
-Tracking: dezren39/nix#327.
+Tracking: dezren39/darwin-nix#327.
 
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
 index 05a02a4..e4d1b75 100644

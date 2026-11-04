@@ -8,7 +8,7 @@
   #253's resource-server work), and the single-user case is covered by
   #338's optional bearer token plus the unix-socket default, not by a
   home-grown token issuer.
-- Issues: dezren39/nix#345 (this decision), #253 (mcpx as OAuth client
+- Issues: dezren39/darwin-nix#345 (this decision), #253 (mcpx as OAuth client
   and as resource server — the neighbour this is not), #338 (optional
   bearer token for /v1 and /mcp — the low-end option), #298 and #300
   (principal/permission model — untouched by this decision).

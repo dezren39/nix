@@ -35,7 +35,7 @@
 #     sufficient there either: with KillMode=process, a predecessor systemd
 #     has stopped tracking can survive a stop still holding the
 #     socket-activated listen socket, and the next start hands the same
-#     socket to a second server (dezren39/nix#1117, 2026-10-29). The systemd
+#     socket to a second server (dezren39/darwin-nix#1117, 2026-10-29). The systemd
 #     model therefore also reaps leftover servers in its start script
 #     (developing-today/code#2465).
 #
@@ -86,7 +86,7 @@ let
   };
 
   start = pkgs.writeShellScript "openchamber-serve" ''
-    # The service event log (dezren39/nix#670). By its stable profile path:
+    # The service event log (dezren39/darwin-nix#670). By its stable profile path:
     # a store path here would make every service-events change restart
     # OpenChamber (see PATH below).
     if [ -x /run/current-system/sw/bin/service-event ]; then
@@ -109,7 +109,7 @@ let
     # git, openssh) ahead of it. The system profile, not store paths: this
     # script's store path is OpenChamber's deploy key, so naming
     # mcpx/git/openssh by store path restarted OpenChamber, and dropped every
-    # client connection, whenever any of them changed (dezren39/nix#663).
+    # client connection, whenever any of them changed (dezren39/darwin-nix#663).
     export PATH="${state}/bin:/run/current-system/sw/bin:${config.environment.systemPath}"
     exec ${openchamber}/bin/openchamber serve --foreground \
       --port ${toString port} --host 127.0.0.1
@@ -244,7 +244,7 @@ in
           echo "openchamberDeploy: $state/start -> $(/usr/bin/readlink "$state/start") is not an executable; launchd cannot start OpenChamber" >&2
           exit 1
         fi
-        # Recorded in the service event log (dezren39/nix#670): what this
+        # Recorded in the service event log (dezren39/darwin-nix#670): what this
         # switch decided and why. Names which part of the key changed, never
         # the password or its hash.
         event() {

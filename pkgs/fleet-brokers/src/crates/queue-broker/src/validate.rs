@@ -13,7 +13,7 @@ pub const FLEET_REPOS: [&str; 6] = [
     "developing-today/code",
     "developing-today/opencode",
     "developing-today/openchamber",
-    "dezren39/nix",
+    "dezren39/darwin-nix",
     "developing-today/zettel",
     "dezren39/dezren39",
 ];
