@@ -27,14 +27,6 @@ name: buffer-backup lock sync
 # they disagree.
 
 "on":
-  push:
-    branches: [main]
-    paths:
-      - "pkgs/buffer-backup/**"
-      - ".github/workflows/buffer-backup-lock-sync.yml"
-      - ".github/workflows/buffer-backup-renovate-bun-sync.yml"
-      - "pkgs/bun-bin/hashes.json"
-      - "pkgs/bun-bin/check-pin-sync.py"
   workflow_dispatch:
 
 permissions:

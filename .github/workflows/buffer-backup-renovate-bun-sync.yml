@@ -47,12 +47,7 @@ name: buffer-backup renovate bun sync
 # do its job in the context of the Renovate PR it syncs, so it keeps a
 # pull_request trigger (narrowed below to the two lockfile inputs).
 "on":
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [main]
-    paths:
-      - "pkgs/buffer-backup/package.json"
-      - "pkgs/buffer-backup/package-lock.json"
+  workflow_dispatch:
 permissions:
   contents: read
 

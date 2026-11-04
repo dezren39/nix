@@ -15,15 +15,6 @@ name: flake packages build
 # fail-fast off so one broken package never hides another.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**.nix"
-      - "flake.nix"
-      - "flake.lock"
-      - "pkgs/**"
-      - "symlinker.sh"
-      - ".github/workflows/flake-packages-build.yml"
   schedule:
     # Nightly backstop for the full main-tier build (offset from the
     # mcpx workflow's 06:23 run).
