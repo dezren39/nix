@@ -202,6 +202,17 @@ fi
 if command -v sqlite3 >/dev/null; then
   fx="$HOME/fx1051"; mkdir -p "$fx"
 
+  # Hermetic wrt the host process table (#1451): the control below runs
+  # prune in APPLY mode, whose check_not_running scans the real process
+  # table via ps and refuses wherever opencode serve is running. Shadow
+  # ps with a stub reporting no processes for this block only (the
+  # vacuum/prune suites' shadowing trick), and restore PATH at the end
+  # of the block so the rest of the suite still sees the real ps.
+  saved_path="$PATH"
+  stub="$fx/stubbin"; mkdir -p "$stub"
+  printf '#!/bin/sh\nexit 0\n' >"$stub/ps"; chmod +x "$stub/ps"
+  PATH="$stub:$PATH"; export PATH
+
   # Full-schema fixture: one old session, 3 snapshots of msg_1 (seq 1-3,
   # so exactly seq 1-2 are eligible under --protect-days 0).
   mk_fixture() { # $1 = db path
@@ -269,6 +280,8 @@ SQL
   else
     ok "vacuum refuses missing-message DB up front, no compacted copy"
   fi
+
+  PATH="$saved_path"; export PATH
 fi
 
 # ---------------------------------------------------------------------------
