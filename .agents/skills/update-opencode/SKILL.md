@@ -9,14 +9,14 @@ This repo does not patch OpenCode or OpenChamber. It builds both from forks we
 own, and every fix goes into the fork it belongs to:
 
 ```
-anomalyco/opencode (dev, v2)  ->  dezren39/opencode  ->  developing-today/opencode   (main)
+anomalyco/opencode (dev, v2)  ->  dezren39/opencode  ->  developing-today-forks/opencode   (main)
 openchamber/openchamber       ->  dezren39/openchamber -> developing-today-forks/openchamber (main)
                                                               |
                                   inputs.openchamber.inputs.opencode   (this repo, via its only developing-today input)
 ```
 
 - There is no root `opencode` input in this repo. OpenCode is reached as
-  `inputs.openchamber.inputs.opencode` = `github:developing-today/opencode`
+  `inputs.openchamber.inputs.opencode` = `github:developing-today-forks/opencode`
   (default branch `main`), as pinned by OpenChamber's lock. Its own
   `nixpkgs` is deliberately NOT followed: the fork's `nix/hashes.json`
   node_modules hashes are computed with the bun in the fork's locked nixpkgs.
@@ -58,7 +58,7 @@ force-push `main`.
    upstream-sync workflow; check whether it ran or do the merge yourself):
    - opencode: merge `anomalyco/opencode` `dev` into fork `main`.
    - openchamber: merge `openchamber/openchamber` `main` into fork `main`.
-3. Verify the OpenCode fork builds here: in a clone of developing-today/opencode
+3. Verify the OpenCode fork builds here: in a clone of developing-today-forks/opencode
    at the commit you want, `nix build .#opencode -L` (detached, poll the log).
 4. Update OpenChamber's pin and verify it builds against that OpenCode:
    in developing-today-forks/openchamber, `nix flake update opencode`, then
@@ -73,7 +73,7 @@ every few minutes; never block on one long timeout.
 
 ## When something breaks: fix it where it lives, then re-pin upward
 
-- **OpenCode build or behavior** -> fix in developing-today/opencode, push to
+- **OpenCode build or behavior** -> fix in developing-today-forks/opencode, push to
   `main`, then step 4 (OpenChamber lock), then step 5 (this repo's lock).
 - **OpenChamber build or behavior** -> fix in developing-today-forks/openchamber,
   push, then step 5.

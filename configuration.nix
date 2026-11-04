@@ -1058,7 +1058,7 @@ lib.recursiveUpdate {
         # never runs two copies of one job, so that is a daemon something else
         # started -- the CLI's autostart did on 2026-10-19 (now off in
         # mcpx.config.nix), and the OpenCode fork's mcpx plugin still can
-        # (developing-today/opencode#134). Left
+        # (developing-today-forks/opencode#134). Left
         # running, it holds the socket, this daemon exits "a daemon is already
         # listening", and KeepAlive respawns it every 10 s (822 times that day).
         ProgramArguments = [ mcpxAgentPath ];

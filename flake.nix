@@ -331,7 +331,7 @@ rec {
         # have put git worktrees there and lost thousands of tracked files to a
         # sweep. OPENCODE_TMPDIR still overrides. Scoped to this wrapper rather
         # than the whole machine, which would retarget nix builds too.
-        # developing-today/opencode#13 asks for this in core.
+        # developing-today-forks/opencode#13 asks for this in core.
         opencode =
           pkgs.runCommandLocal "opencode-${opencode-unwrapped.version}"
             {

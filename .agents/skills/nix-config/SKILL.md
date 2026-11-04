@@ -102,7 +102,7 @@ Where things go:
   are packaged from a lockfile in `pkgs/npm-mcp-servers`. OAuth for the remote
   servers: `just mcp-login <name>` / `just context7-login`. Smoke test:
   `just mcpx-check`.
-- **OpenCode and OpenChamber come from forks we own** (developing-today/opencode,
+- **OpenCode and OpenChamber come from forks we own** (developing-today-forks/opencode,
   developing-today-forks/openchamber; `main`; this repo's only developing-today
   input is `openchamber`, and opencode is reached as
   `inputs.openchamber.inputs.opencode`). Nothing is patched here: fix the
