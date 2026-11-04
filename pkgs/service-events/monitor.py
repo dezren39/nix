@@ -105,7 +105,18 @@ def launchd_jobs():
     return jobs
 
 
+# Every pattern classify() can match contains at least one of these
+# substrings, so a command line containing none of them cannot match any
+# pattern. classify() runs on every line of `ps -axo` output on every tick
+# (every INTERVAL seconds, for the life of the agent), and almost every
+# process on the machine is unrelated: one compiled substring scan rejects
+# those lines instead of four regex searches over the full command line.
+_CLASSIFY_HINTS = re.compile(r"OpenChamber|openchamber|opencode|mcpx|server/index\.js")
+
+
 def classify(command):
+    if not _CLASSIFY_HINTS.search(command):
+        return None
     if "/OpenChamber.app/Contents/MacOS/OpenChamber" in command:
         return "openchamber-desktop"
     if re.search(r"openchamber/packages/web/bin/cli\.js serve|/bin/openchamber serve", command):
@@ -126,14 +137,21 @@ def processes():
         return None
     procs = {}
     for line in out.splitlines():
-        m = re.match(r"\s*(\d+)\s+(\d+)\s+(.*)", line)
-        if not m:
+        # Split in C instead of a per-line regex match: same fields
+        # (leading blanks, decimal pid/ppid, remainder verbatim), and
+        # lines that cannot carry a watched process are rejected here
+        # or by classify()'s hint scan before any regex search runs.
+        parts = line.split(None, 2)
+        if len(parts) != 3 or not (
+            parts[0].isascii() and parts[0].isdigit()
+            and parts[1].isascii() and parts[1].isdigit()
+        ):
             continue
-        role = classify(m.group(3))
+        role = classify(parts[2])
         if role:
             # The desktop app's path has a space ("Nix Apps"); name it outright.
-            program = "OpenChamber" if role == "openchamber-desktop" else os.path.basename(m.group(3).split(" ")[0])
-            procs[int(m.group(1))] = (role, int(m.group(2)), program)
+            program = "OpenChamber" if role == "openchamber-desktop" else os.path.basename(parts[2].split(" ")[0])
+            procs[int(parts[0])] = (role, int(parts[1]), program)
     return procs
 
 

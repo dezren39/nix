@@ -49,3 +49,9 @@
 **Learning:** `source_key` is computed repeatedly across all nodes and candidates during flake-tidy dedup and flattening analysis. While `_normalize_vcs_url` was memoized, `_canonicalize_url_authority` (which parses scheme, authority, IPv6 brackets, ports, and DNS root labels) and `_normalize_ref` (which strips git branch prefixes) were executed unmemoized on every invocation. Caching both pure string functions with `@functools.lru_cache(maxsize=512)` speeds up authority canonicalization by over 68x and ref normalization by ~2.3x.
 
 **Action:** Ensure all pure URL and reference canonicalization helper functions used by graph and grouping keys are decorated with `@functools.lru_cache`.
+
+## 2026-11-04 - Hint Pre-filter and C Split for Per-Tick Process Classification
+
+**Learning:** `service-events`' monitor samples `ps -axo` every INTERVAL (5s) for the life of the launchd agent, and `classify()` ran four regex searches plus a regex line match on every process line, almost all unrelated. A single compiled hint alternation (every matchable pattern contains one of its substrings) rejects unrelated lines in one scan, and `str.split(None, 2)` parses the pid/ppid/command fields in C with identical results (verified on 38k fuzz cases and real `ps` output) — classification throughput rose ~6x (0.53M -> 3.15M lines/s, laptop bench).
+
+**Action:** In always-on samplers, pre-filter per-line regex classifiers with a compiled substring-hint scan whose hints provably cover every pattern, and prefer C-level string splitting over per-line regex matches for fixed-field process output.
