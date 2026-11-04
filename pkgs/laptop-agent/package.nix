@@ -2,6 +2,7 @@
   lib,
   stdenv,
   python3,
+  bash,
   makeWrapper,
 }:
 
@@ -23,7 +24,8 @@ stdenv.mkDerivation {
     runHook preInstall
     install -Dm755 laptop_agent.py $out/libexec/laptop_agent.py
     makeWrapper ${python3}/bin/python3 $out/bin/laptop-agent \
-      --add-flags "$out/libexec/laptop_agent.py"
+      --add-flags "$out/libexec/laptop_agent.py" \
+      --set LAPTOP_AGENT_BASH ${bash}/bin/bash
     runHook postInstall
   '';
 

@@ -183,6 +183,10 @@ fn main() {
             eprintln!("secrets-broker: cannot read token file {token_file}");
             std::process::exit(3);
         });
+    if token.is_empty() {
+        eprintln!("secrets-broker: token file {token_file} is empty; refusing to start");
+        std::process::exit(3);
+    }
     let ttl_s: u64 = std::env::var("SECRETS_BROKER_TTL_S")
         .ok()
         .and_then(|v| v.parse().ok())

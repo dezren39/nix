@@ -116,7 +116,8 @@ fn direct_roundtrip(url: &str, path: &str, body: &Value) -> Result<Value, String
         .nth(1)
         .and_then(|c| c.parse().ok())
         .unwrap_or(0);
-    let resp_body: Value = serde_json::from_slice(&raw[split + 4..]).unwrap_or(Value::Null);
+    let resp_body: Value = serde_json::from_slice(&raw[split + 4..])
+        .map_err(|e| format!("queue-broker bad reply body: {e}"))?;
     if status == 401 {
         die(3, "queue-broker rejected the client token (HTTP 401)");
     }

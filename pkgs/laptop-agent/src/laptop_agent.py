@@ -39,6 +39,9 @@ from urllib.parse import urlparse, parse_qs
 
 BIND_HOST = os.environ.get("LAPTOP_AGENT_HOST", "100.99.113.103")
 BIND_PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "4799"))
+# Absolute interpreter for `shell` requests: NixOS has no /bin/bash, and
+# the package wrapper sets this to the store path.
+BASH = os.environ.get("LAPTOP_AGENT_BASH", "/bin/bash")
 TOKEN_FILE = Path(os.environ.get(
     "LAPTOP_AGENT_TOKEN_FILE", Path.home() / ".config/laptop-agent/token"))
 STATE_DIR = Path(os.environ.get(
@@ -138,7 +141,7 @@ def run_one(spec, timeout_s):
     env = dict(os.environ)
     env.update(spec.get("env") or {})
     if spec.get("shell") is not None:
-        argv = ["/bin/bash", "-lc", spec["shell"]]
+        argv = [BASH, "-lc", spec["shell"]]
     else:
         argv = list(spec["argv"])
     t0 = time.time()
@@ -215,17 +218,21 @@ def load_persisted_jobs():
         job_id = meta.get("id") or d.name
         state = meta.get("state") or "done"
         exit_code = meta.get("exit")
+        ended_at = meta.get("ended_at")
         interrupted = False
         if state == "running":
             # The process did not survive the restart: nobody can poll it.
             state = "done"
             exit_code = None
             interrupted = True
+            # A finite end time is what lets the reaper apply TTL to the
+            # restored job's spool; leaving it null retains it forever.
+            ended_at = time.time()
         JOBS[job_id] = {"id": job_id, "proc": None,
                         "cwd": meta.get("cwd") or str(Path.home()),
                         "cmd_repr": meta.get("cmd") or "",
                         "started_at": float(meta.get("started_at") or 0.0),
-                        "ended_at": meta.get("ended_at"),
+                        "ended_at": ended_at,
                         "exit": exit_code, "state": state,
                         "interrupted": interrupted, "_files": ()}
         if interrupted:
@@ -362,7 +369,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             cwd = body.get("cwd") or str(Path.home())
             if body.get("shell") is not None:
-                argv = ["/bin/bash", "-lc", body["shell"]]
+                argv = [BASH, "-lc", body["shell"]]
                 cmd_repr = body["shell"]
             else:
                 argv = list(body["argv"])

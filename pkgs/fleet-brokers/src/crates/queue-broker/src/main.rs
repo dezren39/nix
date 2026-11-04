@@ -558,6 +558,10 @@ fn main() {
             eprintln!("queue-broker: cannot read token file {token_file}");
             std::process::exit(3);
         });
+    if token.is_empty() {
+        eprintln!("queue-broker: token file {token_file} is empty; refusing to start");
+        std::process::exit(3);
+    }
     let secrets_url = std::env::var("QUEUE_BROKER_SECRETS_URL")
         .unwrap_or_else(|_| "http://100.99.113.103:4800".to_string());
     let secrets_token_file = std::env::var("QUEUE_BROKER_SECRETS_TOKEN_FILE")
@@ -568,6 +572,12 @@ fn main() {
             eprintln!("queue-broker: cannot read secrets token file {secrets_token_file}");
             std::process::exit(3);
         });
+    if secrets_token.is_empty() {
+        eprintln!(
+            "queue-broker: secrets token file {secrets_token_file} is empty; refusing to start"
+        );
+        std::process::exit(3);
+    }
 
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
