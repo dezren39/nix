@@ -1158,6 +1158,31 @@ rec {
               bash ./code-install-extensions.test.sh
               touch $out
             '';
+        # #1435: pm-dispatch-launch.test.sh drives the real launch
+        # script extracted from agents.yml with a stub curl and the
+        # real jq -- payload construction, the four GITHUB_OUTPUT keys
+        # the Summarize step consumes, and the prompt-fetch / OIDC /
+        # non-2xx failure messages and exit codes cannot regress or
+        # drift between the three dispatch tasks (there is now one
+        # implementation, but its contract is pinned here).
+        pm-dispatch-launch-tests =
+          pkgs.runCommandLocal "pm-dispatch-launch-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.jq
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/.github/scripts/pm-dispatch-launch.sh $src/.github/scripts/pm-dispatch-launch.test.sh ./
+              chmod u+w ./pm-dispatch-launch.sh ./pm-dispatch-launch.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./pm-dispatch-launch.test.sh
+              touch $out
+            '';
         # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
         # repo's only *.test.ts suite) was run by nothing — no check,
         # workflow, or recipe referenced it, unlike the flake-tidy,
