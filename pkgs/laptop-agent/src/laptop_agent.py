@@ -333,17 +333,25 @@ def reap_old_jobs():
         shutil.rmtree(job_dir(j["id"]), ignore_errors=True)
 
 
+class FramingError(ValueError):
+    """Invalid request framing: the next request boundary is unknown,
+    so the connection must be closed after the 400 response."""
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):  # quiet; journal gets tracebacks only
         pass
 
-    def _send(self, code, obj):
+    def _send(self, code, obj, close=False):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if close:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
 
@@ -357,9 +365,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except (TypeError, ValueError):
-            raise ValueError("invalid Content-Length header")
+            raise FramingError("invalid Content-Length header")
         if n < 0:
-            raise ValueError("invalid Content-Length header")
+            raise FramingError("invalid Content-Length header")
         raw = self.rfile.read(n) if n else b"{}"
         try:
             body = json.loads(raw or b"{}")
@@ -371,7 +379,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_bad_request(self, e):
         try:
-            self._send(400, {"error": str(e) or "bad request"})
+            self._send(400, {"error": str(e) or "bad request"},
+                       close=isinstance(e, FramingError))
         except Exception:
             pass
 

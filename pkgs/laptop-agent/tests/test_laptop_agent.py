@@ -366,6 +366,27 @@ class MalformedRequestTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["ok"])
 
+    def test_bad_content_length_with_body_closes_connection(self):
+        # Codex P2 on PR #1508: unread body bytes after a framing 400
+        # would otherwise be parsed as the next request. Oracle: the
+        # 400 carries Connection: close, and a fresh connection's
+        # authed /health still returns 200.
+        conn = self._conn()
+        conn.putrequest("POST", "/exec")
+        conn.putheader("X-Agent-Token", self.token)
+        conn.putheader("Content-Type", "application/json")
+        conn.putheader("Content-Length", "abc")
+        conn.endheaders(b"{}")
+        r = conn.getresponse()
+        body = json.loads(r.read())
+        self.assertEqual(r.status, 400, body)
+        self.assertIn("error", body)
+        self.assertEqual(r.getheader("Connection"), "close")
+        conn.close()
+        status, body = self._call("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
     def test_exec_timeout_not_an_integer(self):
         self._assert_400_then_health(
             "POST", "/exec",
