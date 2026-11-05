@@ -6,6 +6,71 @@
 }:
 let
   ocPkgs = inputs.self.packages.${system};
+
+  # Google Chrome with structural CDP (developing-today/code#5924
+  # follow-up; fleet rule: every browser exposes the DevTools
+  # endpoint on loopback at every launch). Chrome itself is a
+  # Homebrew cask (casks.nix) whose bundle cannot be wrapped in
+  # place declaratively, so this package provides the wrapped
+  # launch paths: a "Google Chrome CDP" app (linked into
+  # /Applications/Nix Apps by nix-darwin's applications
+  # activation) and a `google-chrome-cdp` CLI wrapper. Both exec
+  # the cask's real binary with the fleet flags --
+  # --remote-debugging-address=127.0.0.1 (loopback ONLY; the
+  # remote path is loopback + tailscale serve / CONNECT proxy)
+  # and port 19223, the fleet's Chrome port (19222 Helium,
+  # 19223 Chrome, 19224 Chromium). Caller args follow and win.
+  # Residual gap, by construction: launching the stock
+  # /Applications/Google Chrome.app directly (Dock pin, Finder,
+  # `open -a`) bypasses these wrappers; use the CDP app instead.
+  # Firefox-family installs here (firefox, zen, zen@twilight
+  # casks) have no CDP to enable -- their remote protocol is
+  # WebDriver BiDi, not configured; see code#5924.
+  googleChromeCdp = pkgs.stdenvNoCC.mkDerivation {
+    pname = "google-chrome-cdp";
+    version = "1.0";
+    src = null;
+    dontUnpack = true;
+    installPhase = ''
+      app="$out/Applications/Google Chrome CDP.app"
+      mkdir -p "$app/Contents/MacOS" "$out/bin"
+
+      cat > "$app/Contents/MacOS/Google Chrome CDP" <<'LAUNCHER'
+      #!/bin/sh
+      exec "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-address=127.0.0.1 --remote-debugging-port=19223 "$@"
+      LAUNCHER
+      chmod +x "$app/Contents/MacOS/Google Chrome CDP"
+
+      cat > "$app/Contents/Info.plist" <<'PLIST'
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>CFBundleExecutable</key>
+        <string>Google Chrome CDP</string>
+        <key>CFBundleIdentifier</key>
+        <string>local.drewrypope.google-chrome-cdp</string>
+        <key>CFBundleName</key>
+        <string>Google Chrome CDP</string>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleShortVersionString</key>
+        <string>1.0</string>
+      </dict>
+      </plist>
+      PLIST
+
+      cat > "$out/bin/google-chrome-cdp" <<'LAUNCHER'
+      #!/bin/sh
+      exec "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-address=127.0.0.1 --remote-debugging-port=19223 "$@"
+      LAUNCHER
+      chmod +x "$out/bin/google-chrome-cdp"
+    '';
+    meta = {
+      description = "Google Chrome launcher with CDP remote debugging on 127.0.0.1:19223";
+      platforms = pkgs.lib.platforms.darwin;
+    };
+  };
 in
 {
   environment.systemPackages =
@@ -13,6 +78,7 @@ in
     [
       colima
       cargo-cache # `cargo cache -r all` in ./clean; ~/.cargo has no built-in pruner
+      googleChromeCdp # Chrome launcher with structural CDP on 127.0.0.1:19223 (code#5924)
       duti # sets LaunchServices URL/UTI handlers; used to pin the default browser
       doggo
       docker-client
