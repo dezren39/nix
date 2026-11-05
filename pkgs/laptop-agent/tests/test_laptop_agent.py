@@ -68,6 +68,45 @@ class EmptyTokenTest(unittest.TestCase):
         self.assertEqual(p.returncode, 3, p.stderr)
 
 
+class StartupEnvValidationTest(unittest.TestCase):
+    """#1510: invalid PORT/SLOTS must exit 3 naming var+value, no traceback."""
+
+    def _run_with_env(self, extra):
+        with tempfile.NamedTemporaryFile("w", suffix="-token",
+                                         delete=False) as f:
+            f.write("test-token\n")
+            token = f.name
+        try:
+            env = dict(os.environ,
+                       LAPTOP_AGENT_TOKEN_FILE=token,
+                       LAPTOP_AGENT_HOST="127.0.0.1",
+                       LAPTOP_AGENT_PORT=str(free_port()),
+                       LAPTOP_AGENT_STATE=tempfile.mkdtemp())
+            env.update(extra)
+            return subprocess.run([sys.executable, str(AGENT)], env=env,
+                                  capture_output=True, text=True, timeout=20)
+        finally:
+            os.unlink(token)
+
+    def test_invalid_port_refuses_to_start(self):
+        for value in ("abc", "0", "99999", "-1"):
+            with self.subTest(LAPTOP_AGENT_PORT=value):
+                p = self._run_with_env({"LAPTOP_AGENT_PORT": value})
+                self.assertEqual(p.returncode, 3, p.stderr)
+                self.assertIn("invalid LAPTOP_AGENT_PORT=", p.stderr)
+                self.assertIn(repr(value), p.stderr)
+                self.assertNotIn("Traceback", p.stderr)
+
+    def test_invalid_slots_refuses_to_start(self):
+        for value in ("abc", "0", "-1"):
+            with self.subTest(LAPTOP_AGENT_SLOTS=value):
+                p = self._run_with_env({"LAPTOP_AGENT_SLOTS": value})
+                self.assertEqual(p.returncode, 3, p.stderr)
+                self.assertIn("invalid LAPTOP_AGENT_SLOTS=", p.stderr)
+                self.assertIn(repr(value), p.stderr)
+                self.assertNotIn("Traceback", p.stderr)
+
+
 class AuthHeaderTest(unittest.TestCase):
     """A request without the header must be rejected, not treated as ""."""
 
