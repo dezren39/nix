@@ -823,6 +823,102 @@ class PersistedJobTimestampTest(unittest.TestCase):
             # null/missing ended_at gets a finite load-time stamp.
             self.assertIsInstance(bare["ended_at"], float)
 
+    def test_non_string_id_skipped_healthy_kept(self):
+        # Issue #1548: a persisted meta id that is not a string must
+        # not crash startup (list/object: unhashable at the JOBS
+        # assignment) or poison /jobs and the reaper (number/bool:
+        # TypeError at job_dir). Oracle: same skip contract as
+        # #1513/#1522 -- skipped whole, exactly one stderr line naming
+        # its dir, spool left on disk, healthy siblings unchanged.
+        la = self._import_agent()
+        cases = [
+            ("numeric-id", 42),
+            ("zero-id", 0),
+            ("bool-id", True),
+            ("false-id", False),
+            ("list-id", ["a", "b"]),
+            ("object-id", {"a": 1}),
+        ]
+        for job_id, bad_id in cases:
+            with self.subTest(job_id=job_id, bad_id=repr(bad_id)):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    bad = self._write_job(state_dir, job_id, id=bad_id,
+                                          started_at=100.0,
+                                          ended_at=150.0)
+                    self._write_job(state_dir, "healthy",
+                                    started_at=100.0, ended_at=150.0)
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn(job_id, la.JOBS)
+                    self.assertEqual(sorted(la.JOBS), ["healthy"])
+                    self.assertTrue(bad.exists())
+                    lines = [ln for ln in stderr.splitlines()
+                             if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(bad), lines[0])
+                    self.assertIn("id", lines[0])
+
+    def test_non_string_id_running_entry_skipped_no_meta_write(self):
+        # A running entry is the _write_meta crash vector: restore
+        # converts it to interrupted and _write_meta calls
+        # job_dir(job["id"]) before its try block. A non-string id
+        # must be skipped before any of that, spool untouched.
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            bad = self._write_job(state_dir, "running-bad-id", id=42,
+                                  state="running", exit=None,
+                                  started_at=100.0, ended_at=None)
+            before = (bad / "meta.json").read_text()
+            self._write_job(state_dir, "healthy",
+                            started_at=100.0, ended_at=150.0)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(sorted(la.JOBS), ["healthy"])
+            self.assertEqual((bad / "meta.json").read_text(), before)
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, stderr)
+
+    def test_non_string_id_summary_public_and_reaper_succeed(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            self._write_job(state_dir, "list-id-job", id=[1, 2],
+                            started_at=100.0, ended_at=150.0)
+            self._write_job(state_dir, "numeric-id-job", id=7,
+                            started_at=100.0, ended_at=150.0)
+            self._write_job(state_dir, "healthy",
+                            started_at=100.0, ended_at=150.0)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(sorted(la.JOBS), ["healthy"])
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 2, stderr)
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                summaries = [la.job_summary(j)
+                             for j in list(la.JOBS.values())]
+                publics = [la.job_public(j)
+                           for j in list(la.JOBS.values())]
+                la.reap_old_jobs()
+            self.assertEqual([s["job_id"] for s in summaries],
+                             ["healthy"])
+            self.assertEqual([p["job_id"] for p in publics],
+                             ["healthy"])
+
+    def test_missing_null_empty_id_falls_back_to_dir_name(self):
+        # Acceptance #1548: missing/null/empty-string id keeps the
+        # current fallback to the spool directory name.
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            self._write_job(state_dir, "null-id", id=None,
+                            started_at=100.0, ended_at=150.0)
+            self._write_job(state_dir, "empty-id", id="",
+                            started_at=100.0, ended_at=150.0)
+            missing = self._write_job(state_dir, "missing-id",
+                                      started_at=100.0, ended_at=150.0)
+            meta = json.loads((missing / "meta.json").read_text())
+            del meta["id"]
+            (missing / "meta.json").write_text(json.dumps(meta))
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            self.assertEqual(sorted(la.JOBS),
+                             ["empty-id", "missing-id", "null-id"])
+
 
 class ReaperStartupTest(unittest.TestCase):
     """#1504: past-TTL finished jobs are reaped at startup, with no

@@ -298,6 +298,22 @@ def load_persisted_jobs():
                   f"bad {'/'.join(_bad_fields)} in meta.json",
                   file=sys.stderr, flush=True)
             continue
+        # Issue #1548: validate the id field like the container and
+        # timestamps above. The daemon only ever writes string ids
+        # (secrets.token_hex(6)); any other present, non-null value is
+        # malformed. A list/object id is unhashable and raised TypeError
+        # at the JOBS assignment below, aborting startup, while a
+        # numeric/bool id reached job_dir() (Path / job_id) in
+        # _write_meta/job_summary/job_public/reap_old_jobs and raised
+        # there. Skip the whole entry, one stderr line naming the dir,
+        # spool untouched. Missing/null/empty-string keeps the
+        # established fallback to the spool directory name below.
+        _raw_id = meta.get("id")
+        if _raw_id is not None and not isinstance(_raw_id, str):
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  "non-string id in meta.json",
+                  file=sys.stderr, flush=True)
+            continue
         job_id = meta.get("id") or d.name
         state = meta.get("state") or "done"
         exit_code = meta.get("exit")
