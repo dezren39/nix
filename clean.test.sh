@@ -718,8 +718,8 @@ gate_colors() (
   . "$GATE_DIR/gate.sh" > /dev/null
   printf '%s%s%s%s' "$C_WARN" "$C_WARN_OFF" "$C_INFO" "$C_INFO_OFF"
 )
-[ -z "$(gate_colors)" ] || fail "color gate: piped streams still set warn/info colors"
-[ -z "$(NO_COLOR=1 gate_colors)" ] || fail "color gate: NO_COLOR=1 still sets warn/info colors"
+[ -z "$(gate_colors 2>/dev/null)" ] || fail "color gate: piped streams still set warn/info colors"
+[ -z "$(NO_COLOR=1 gate_colors 2>/dev/null)" ] || fail "color gate: NO_COLOR=1 still sets warn/info colors"
 rm -rf "$GATE_DIR"
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
