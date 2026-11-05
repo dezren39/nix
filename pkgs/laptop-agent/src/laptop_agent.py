@@ -282,6 +282,37 @@ def job_public(job, out_off=0, err_off=0):
             "out_next": out_off + len(out), "err_next": err_off + len(err)}
 
 
+def job_summary(job):
+    """Summary serializer for the GET /jobs list route.
+
+    Returns the documented list shape (docstring above): identity,
+    state, and spool sizes/cursors only.  Unlike job_public it never
+    reads or embeds stdout/stderr payloads, so polling the list costs
+    O(jobs), not O(jobs x 2 x MAX_OUT).  out_next/err_next are the
+    spool sizes, i.e. the offsets a client would page from in the
+    single-job route.
+    """
+    state = job_state(job)
+    d = job_dir(job["id"])
+    try:
+        out_size = (d / "stdout").stat().st_size
+    except OSError:
+        out_size = 0
+    try:
+        err_size = (d / "stderr").stat().st_size
+    except OSError:
+        err_size = 0
+    return {"job_id": job["id"], "state": state,
+            "exit": job["exit"] if state == "done" else None,
+            "cwd": job["cwd"], "cmd": job["cmd_repr"],
+            "started_at": job["started_at"],
+            "interrupted": job.get("interrupted", False),
+            "duration_ms": int(((job["ended_at"] or time.time())
+                                - job["started_at"]) * 1000),
+            "out_bytes": out_size, "err_bytes": err_size,
+            "out_next": out_size, "err_next": err_size}
+
+
 def reap_old_jobs():
     now = time.time()
     with JOBS_LOCK:
@@ -333,7 +364,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "jobs": n, "load1": os.getloadavg()[0]})
         if path.path == "/jobs":
             with JOBS_LOCK:
-                items = [job_public(j) for j in JOBS.values()]
+                items = [job_summary(j) for j in JOBS.values()]
             return self._send(200, {"jobs": items})
         if path.path.startswith("/jobs/"):
             job_id = path.path.split("/")[2]
