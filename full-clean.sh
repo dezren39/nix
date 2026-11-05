@@ -36,7 +36,16 @@ fi
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+# Step headers are bold only on a terminal, and never under NO_COLOR
+# (https://no-color.org) -- Palette (#1465): a piped/logged run stays
+# plain text.
+step() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    printf '\n\033[1m==> %s\033[0m\n' "$*"
+  else
+    printf '\n==> %s\n' "$*"
+  fi
+}
 
 # ---------------------------------------------------------------------------
 step "Checking for running opencode processes"

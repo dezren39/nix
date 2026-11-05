@@ -703,5 +703,24 @@ case "$BC_ERR" in
 esac
 BREW_STUB_FAIL=0
 
+# ─── #1465: the warn/info color gate follows its output stream ─────────────
+# warn writes to stderr while info writes to stdout. Keep their gates
+# independent so a terminal on one stream cannot leak escapes to a log on
+# the other; NO_COLOR disables both.
+GATE_DIR="$(mktemp -d)"
+sed -n '/^# Gate each color by the stream/,/^set_output_colors$/p' "$SCRIPT" > "$GATE_DIR/gate.sh"
+[ -s "$GATE_DIR/gate.sh" ] || fail "could not extract the output color gates from clean.sh"
+grep -q 'NO_COLOR' "$GATE_DIR/gate.sh" || fail "clean.sh color gate does not consult NO_COLOR"
+grep -Fq '&& -t 2' "$GATE_DIR/gate.sh" || fail "warn color gate does not test stderr"
+grep -Fq '&& -t 1' "$GATE_DIR/gate.sh" || fail "info color gate does not test stdout"
+gate_colors() (
+  # shellcheck disable=SC1091
+  . "$GATE_DIR/gate.sh" > /dev/null
+  printf '%s%s%s%s' "$C_WARN" "$C_WARN_OFF" "$C_INFO" "$C_INFO_OFF"
+)
+[ -z "$(gate_colors)" ] || fail "color gate: piped streams still set warn/info colors"
+[ -z "$(NO_COLOR=1 gate_colors)" ] || fail "color gate: NO_COLOR=1 still sets warn/info colors"
+rm -rf "$GATE_DIR"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all clean.sh flag-shaped-value checks passed"

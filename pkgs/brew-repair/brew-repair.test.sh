@@ -26,6 +26,7 @@
 # TypeError, valid JSON was misreported as unparseable, and zero casks
 # were verified. The checked app is the target's basename (the source
 # name is not installed); present = healthy, missing = broken naming it.
+# Scenario S covers #1465: piped output and NO_COLOR output contain no ANSI.
 # This drives the REAL brew-repair.sh against a call-logging stub brew
 # with two broken casks (alpha, beta; both .apps missing).
 set -uo pipefail
@@ -284,6 +285,21 @@ grep -q "missing Target Alpha.app" <<<"$out_r2" || fail "R: missing target not n
 grep -q "1 broken" <<<"$out_r2" || fail "R: summary does not count alpha broken when its target is missing"
 grep -q "brew reinstall --cask alpha" <<<"$out_r2" || fail "R: alpha not listed as would-reinstall when its target is missing"
 [[ $failures -eq $start ]] && ok "R: target-renamed cask with target missing is broken, naming the target app"
+# ─── Scenario S (#1465): no ANSI escapes in piped output, NO_COLOR or not ─
+# brew-repair set its colors unconditionally, so a run piped to a file or
+# log carried raw ESC bytes. Captured output here is not a terminal, so
+# it must be plain; NO_COLOR=1 must be plain too.
+start_s=$failures
+out_s="$(run_brew_repair -n)"
+if [[ "$out_s" == *$'\033'* ]]; then
+  fail "S: piped (non-terminal) output contains ANSI escape bytes"
+fi
+out_s2="$(NO_COLOR=1 run_brew_repair -n)"
+if [[ "$out_s2" == *$'\033'* ]]; then
+  fail "S: NO_COLOR=1 output contains ANSI escape bytes"
+fi
+grep -q "Summary:" <<<"$out_s" || fail "S: control -- summary missing, plain-output check is vacuous"
+[[ $failures -eq $start_s ]] && ok "S: piped and NO_COLOR output are plain text (no ANSI escapes)"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2

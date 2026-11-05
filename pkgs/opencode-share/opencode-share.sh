@@ -12,8 +12,9 @@ ACTION="mount" # mount | unmount | status
 ACTION_SET=false # true once an action flag is given on the command line
 SOURCE_SET=false # true once --source is given (SOURCE itself has a default)
 
-# Colors (disabled if not a terminal)
-if [[ -t 1 ]]; then
+# Colors (disabled if not a terminal, or when NO_COLOR is set --
+# https://no-color.org; #1465)
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   RED='\033[0;31m'
   GREEN='\033[0;32m'
   YELLOW='\033[1;33m'

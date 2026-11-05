@@ -129,6 +129,16 @@ check "no argument runs the vacuum step" \
 check "no argument runs sudo GC" grep -q "^sudo nix-collect-garbage -d$" "$LOG"
 check "no argument runs nix store optimise" grep -q "^nix store optimise$" "$LOG"
 
+# --- #1465: captured (non-terminal) output carries no ANSI escapes -----------
+# step() bolded its headers unconditionally, so a logged run was full of
+# raw ESC bytes. This run's stdout was captured to a file, i.e. not a
+# terminal, so it must be plain text.
+if grep -q $'\033' "$TMP_ROOT/out"; then
+  fail "non-terminal output contains ANSI escape bytes (step headers)"
+else
+  echo "ok: non-terminal output is plain text (no ANSI escapes)"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

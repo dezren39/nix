@@ -4,12 +4,20 @@
 # and selectively reinstalls only the broken ones.
 set -uo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-BOLD='\033[1m'
-NC='\033[0m'
+# Colors only on a terminal, and never when NO_COLOR is set
+# (https://no-color.org) -- Palette (#1465). Piped or logged output stays
+# plain text: raw escapes corrupt log files and are noise to screen
+# readers. Same gate opencode-share already used for its tty half.
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[0;33m'
+  BLUE='\033[0;34m'
+  BOLD='\033[1m'
+  NC='\033[0m'
+else
+  RED='' GREEN='' YELLOW='' BLUE='' BOLD='' NC=''
+fi
 
 DRY_RUN=false
 QUIET=false
