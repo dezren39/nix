@@ -24,6 +24,7 @@ after 24h, spool directory included.
 """
 import hmac
 import json
+import math
 import os
 import secrets
 import shutil
@@ -251,15 +252,19 @@ def load_persisted_jobs():
         # Issue #1513: validate timestamps on the raw meta before any
         # consumer (float() conversion, running->interrupted, summary,
         # reaper) touches them. Valid is missing/None (defaults apply)
-        # or an int/float that is not a bool (bool is an int subclass,
-        # so float(True) == 1.0 would otherwise slip through). Strings
-        # (even numeric ones), lists, objects and bools are malformed:
-        # skip the whole entry like an unreadable/invalid-JSON dir,
-        # naming the dir on stderr, and leave the spool on disk.
+        # or a finite int/float that is not a bool (bool is an int
+        # subclass, so float(True) == 1.0 would otherwise slip through).
+        # Strings (even numeric ones), lists, objects and bools are
+        # malformed, as are non-finite floats (issue #1523: json.loads
+        # parses the NaN/Infinity/-Infinity literals to float, and
+        # int() duration arithmetic raises on them): skip the whole
+        # entry like an unreadable/invalid-JSON dir, naming the dir
+        # on stderr, and leave the spool on disk.
         def _bad_ts(value):
             return value is not None and (
                 isinstance(value, bool)
-                or not isinstance(value, (int, float)))
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value))
 
         _bad_fields = [name for name in ("started_at", "ended_at")
                        if _bad_ts(meta.get(name))]
