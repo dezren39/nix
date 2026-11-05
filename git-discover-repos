@@ -287,7 +287,26 @@ mark_seen() { printf '%s\n' "$1" >> "$SEEN_FILE"; }
 # classify PATH -> prints "repo" or "worktree", or nothing if neither
 classify() {
   local d="$1"
-  if [ -f "$d/.git" ]; then echo worktree
+  if [ -f "$d/.git" ]; then
+    # A .git file is a gitdir pointer: read where it points (#1511).
+    # A linked worktree points at <repo>/.git/worktrees/<name> and
+    # shares that repo's object store, so it stays a worktree. A
+    # submodule checkout points at <super>/.git/modules/<name> and
+    # owns an independent object store, so it is a repo in its own
+    # right: maintenance must target it (via the checkout path)
+    # exactly once.
+    local line target
+    line="$(head -n 1 "$d/.git" 2>/dev/null)"
+    target="${line#gitdir: }"
+    case "$target" in
+      /*) ;;
+      *) target="$d/$target" ;;
+    esac
+    target="$(canon "$target")"
+    case "$target" in
+      */.git/modules/*) echo repo ;;
+      *) echo worktree ;;
+    esac
   elif [ -d "$d/.git" ]; then echo repo
   elif is_bare_repo "$d"; then echo repo
   fi
@@ -305,6 +324,14 @@ emit() {
 consider() {
   local d="$1" kind
   [ -d "$d" ] || return 0
+  # Never emit a record inside a .git/modules tree (#1511): that is a
+  # submodule's object store, and its canonical record is the
+  # submodule checkout (kind repo). The follow hop reaches here with
+  # the modules path because `git worktree list` run inside a
+  # submodule names the gitdir as the worktree path.
+  case "$d" in
+    */.git/modules/*) return 0 ;;
+  esac
   kind="$(classify "$d")"
   [ -z "$kind" ] && return 0
   if [ "$kind" = "repo" ] && [ "$INCLUDE_BARE" = "0" ] && is_bare_repo "$d"; then return 0; fi
@@ -444,10 +471,20 @@ if [ "$FOLLOW" = "1" ]; then
       fi
       rm -f "$common_err"
       if [ -n "$common" ] && [ -d "$common" ]; then
-        main="${common%/.git}"
-        [ "$main" = "$common" ] || consider "$main"
-        # a bare repo's common dir IS the repo
-        [ "$main" = "$common" ] && is_bare_repo "$common" && consider "$common"
+        case "$common" in
+          */.git/modules/*)
+            # A submodule's common dir lives inside the superproject's
+            # .git/modules (#1511): the submodule checkout itself is
+            # the canonical repo record (classify kinds it repo), so
+            # never emit a record inside another repo's .git.
+            ;;
+          *)
+            main="${common%/.git}"
+            [ "$main" = "$common" ] || consider "$main"
+            # a bare repo's common dir IS the repo
+            [ "$main" = "$common" ] && is_bare_repo "$common" && consider "$common"
+            ;;
+        esac
       fi
       # repository -> every worktree attached to it
       # `worktree list` used to run in a process substitution, whose

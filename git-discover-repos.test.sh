@@ -330,6 +330,44 @@ case "$ERR" in *"failed to resolve git common dir for: $FOLLOWED_CANON/repo"*) e
 case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/linked"*) echo "ok: linked worktree still printed when rev-parse fails" ;; *) fail "rev-parse failure run did not list the linked worktree (got: $OUT)" ;; esac
 rm -f "$git_shim_dir/git"
 
+# ─── Submodule classification (#1511) ─────────────────────────────
+# A submodule checkout has a .git FILE just like a linked worktree,
+# but its gitdir pointer targets <super>/.git/modules/<name> and it
+# owns an independent object store. classify() used to call every
+# .git file a worktree, so --path mode never maintained the
+# submodule's store, and the --follow hop followed the common dir
+# into .git/modules and emitted a repo record inside another repo's
+# .git. Pinned here with a real superproject + submodule fixture:
+# the checkout is a repo exactly once in both modes, no record
+# points inside .git, and the linked-worktree section above pins
+# that real worktrees are unchanged.
+SUBM="$TMP_ROOT/submod"
+mkdir -p "$SUBM"
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always
+"$real_git" init -q "$SUBM/sub-src"
+printf 'x\n' > "$SUBM/sub-src/file"
+"$real_git" -C "$SUBM/sub-src" add file
+"$real_git" -C "$SUBM/sub-src" -c user.name=Test -c user.email=test@example.com commit -qm init
+"$real_git" init -q "$SUBM/super"
+"$real_git" -C "$SUBM/super" submodule add -q ../sub-src sub
+"$real_git" -C "$SUBM/super" add .gitmodules sub
+"$real_git" -C "$SUBM/super" -c user.name=Test -c user.email=test@example.com commit -qm add-sub
+unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+SUBM_CANON="$(cd "$SUBM" && pwd -P)"
+
+run --path "$SUBM/super"
+[ "$STATUS" -eq 0 ] || fail "submodule --path exited $STATUS (#1511)"
+case "$OUT" in *"repo"$'\t'"$SUBM_CANON/super"*) echo "ok: --path lists the superproject as a repo" ;; *) fail "--path did not list the superproject as a repo (got: $OUT)" ;; esac
+case "$OUT" in *"repo"$'\t'"$SUBM_CANON/super/sub"*) echo "ok: --path lists the submodule checkout as a repo (#1511)" ;; *) fail "--path did not list the submodule checkout as a repo (got: $OUT)" ;; esac
+case "$OUT" in *"worktree"*) fail "--path labelled the submodule a worktree (got: $OUT)" ;; *) echo "ok: --path emits no worktree record for the submodule" ;; esac
+case "$OUT" in *".git/modules"*) fail "--path emitted a record inside .git/modules (got: $OUT)" ;; *) echo "ok: --path emits no record inside .git" ;; esac
+
+run --path "$SUBM/super" --follow
+[ "$STATUS" -eq 0 ] || fail "submodule --follow exited $STATUS (#1511)"
+case "$OUT" in *"repo"$'\t'"$SUBM_CANON/super/sub"*) echo "ok: --follow lists the submodule checkout as a repo (#1511)" ;; *) fail "--follow did not list the submodule checkout as a repo (got: $OUT)" ;; esac
+case "$OUT" in *".git/modules"*) fail "--follow emitted a record inside .git/modules (got: $OUT)" ;; *) echo "ok: --follow emits no record inside .git" ;; esac
+case "$OUT" in *"worktree"*) fail "--follow labelled the submodule a worktree (got: $OUT)" ;; *) echo "ok: --follow emits no worktree record for the submodule" ;; esac
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for git-discover-repos, driven through
 # lib/arg-probe.sh (the same helper every discovery suite uses):
