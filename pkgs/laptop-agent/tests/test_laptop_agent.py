@@ -437,7 +437,7 @@ class MalformedRequestTest(unittest.TestCase):
     def test_exec_non_finite_timeout_is_rejected(self):
         conn = self._conn()
         try:
-            for timeout in (float("inf"), float("-inf")):
+            for timeout in (float("nan"), float("inf"), float("-inf")):
                 with self.subTest(timeout=timeout):
                     status, body = self._call(
                         "POST", "/exec",
