@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/platform/subagents.md
+
 # Subagent-First Workflow
 
 **Your default approach should be to use subagents.** Delegate work to subagents (Task tool) unless you have a specific reason not to. Subagents run autonomously with their own context windows, enabling parallel execution and keeping the main conversation focused. Reaching for a subagent should be your first instinct — only skip it when the task is truly trivial.

@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/platform/worktrees.md
+
 # Git worktrees: never under /var/
 
 `/var/folders/.../T/` is the macOS per-user temp directory. **It is swept

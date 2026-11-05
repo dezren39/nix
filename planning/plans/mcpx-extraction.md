@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/fleet/mcpx-extraction.md
+
 # Move mcpx to developing-today/code
 
 - Status: done for the build switch and the deletion (steps 4–5, #468,

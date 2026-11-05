@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/fleet/2026-10-19-reliability-review.md
+
 # Reliability review, 2026-10-19
 
 A dated record of one long working session: what broke, why, what was changed,

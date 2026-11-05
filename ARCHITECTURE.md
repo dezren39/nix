@@ -30,7 +30,10 @@ openchamber.nix        OpenChamber server launchd agent + desktop client (§5)
 docs/                  services.md (how OpenChamber, OpenCode and mcpx run, are replaced
                        on a switch, checked and debugged), mcp.md (every MCP server, its
                        auth and credentials), dated reviews, sidepulse docs
+                       (canonical copies of services.md, mcp.md and the dated reviews:
+                       developing-today/code doc/fleet/)
 instructions/          OpenCode instruction files (worktrees, recordings, work-strategies; archive/)
+                       (canonical copies: developing-today/code doc/platform/)
 commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)
 opencode-global.jsonc  OpenCode v2 global config, meant to be linked as ~/.config/opencode/opencode.jsonc (currently not; see §5)
