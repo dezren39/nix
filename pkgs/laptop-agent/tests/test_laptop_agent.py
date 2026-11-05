@@ -318,6 +318,94 @@ class JobsListShapeTest(unittest.TestCase):
 
 
 
+class JobSlotsTest(unittest.TestCase):
+    """Issue #1545: POST /jobs shares the LAPTOP_AGENT_SLOTS pool.
+
+    Oracle: with SLOTS=1 and one long-running job held, a second
+    POST /jobs gets 503 busy (after the bounded 5s wait, like /exec)
+    instead of running concurrently, /exec is likewise busy (shared
+    pool), and once the held job ends its slot is released so a new
+    job is accepted again.
+    """
+
+    def test_second_job_rejected_while_slot_held_then_accepted(self):
+        token = "jobs-slots-test-token"
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write(token + "\n")
+            token_path = f.name
+        port = free_port()
+        env = dict(os.environ,
+                   LAPTOP_AGENT_TOKEN_FILE=token_path,
+                   LAPTOP_AGENT_HOST="127.0.0.1",
+                   LAPTOP_AGENT_PORT=str(port),
+                   LAPTOP_AGENT_SLOTS="1",
+                   LAPTOP_AGENT_STATE=tempfile.mkdtemp())
+        proc = subprocess.Popen([sys.executable, str(AGENT)], env=env,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        headers = {"X-Agent-Token": token,
+                   "Content-Type": "application/json"}
+
+        def call(method, path, body=None):
+            data = json.dumps(body).encode() if body is not None else None
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}{path}", data=data,
+                headers=headers, method=method)
+            try:
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    return r.status, json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                return e.code, json.loads(e.read())
+
+        try:
+            deadline = time.time() + 10
+            while True:
+                try:
+                    status, body = call("GET", "/health")
+                    if status == 200 and body["ok"]:
+                        break
+                except Exception:
+                    if time.time() > deadline:
+                        raise
+                    time.sleep(0.1)
+            status, body = call("POST", "/jobs", {
+                "cwd": "/",
+                "argv": [sys.executable, "-c",
+                         "import time; time.sleep(30)"]})
+            self.assertEqual(status, 200, body)
+            job_id = body["job_id"]
+            # The single slot is held for the job's lifetime: a second
+            # job must not run concurrently.
+            status, body = call("POST", "/jobs", {
+                "cwd": "/", "argv": [sys.executable, "-c", "pass"]})
+            self.assertEqual(status, 503, body)
+            self.assertEqual(body.get("error"), "busy")
+            listing_status, listing = call("GET", "/jobs")
+            self.assertEqual(listing_status, 200, listing)
+            running = [j for j in listing["jobs"]
+                       if j["state"] == "running"]
+            self.assertEqual([j["job_id"] for j in running], [job_id])
+            # Shared pool: /exec is busy too while the job holds the slot.
+            status, body = call("POST", "/exec", {
+                "cmds": [{"argv": [sys.executable, "-c", "pass"]}]})
+            self.assertEqual(status, 503, body)
+            # Killing the held job releases the slot for new work.
+            status, body = call("POST", f"/jobs/{job_id}/kill")
+            self.assertEqual(status, 200, body)
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                status, body = call("POST", "/jobs", {
+                    "cwd": "/", "argv": [sys.executable, "-c", "pass"]})
+                if status == 200:
+                    break
+                time.sleep(0.2)
+            self.assertEqual(status, 200, body)
+        finally:
+            proc.terminate()
+            proc.wait(timeout=10)
+            os.unlink(token_path)
+
+
 class MalformedRequestTest(unittest.TestCase):
     """Issue #1502: malformed input returns 400 JSON, never a drop.
 
