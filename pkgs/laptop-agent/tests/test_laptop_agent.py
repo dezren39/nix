@@ -437,7 +437,8 @@ class MalformedRequestTest(unittest.TestCase):
     def test_exec_negative_timeout_is_clamped(self):
         status, body = self._call(
             "POST", "/exec",
-            body={"cmds": [{"argv": [sys.executable, "-c", "pass"]}],
+            body={"cmds": [{"cwd": os.getcwd(),
+                             "argv": [sys.executable, "-c", "pass"]}],
                   "timeout_s": -5})
         self.assertEqual(status, 200, body)
         self.assertEqual(body["results"][0]["exit"], 0)
@@ -457,7 +458,8 @@ class MalformedRequestTest(unittest.TestCase):
     def test_job_query_offsets_malformed(self):
         status, body = self._call(
             "POST", "/jobs",
-            body={"argv": [sys.executable, "-c", "pass"]})
+            body={"cwd": os.getcwd(),
+                  "argv": [sys.executable, "-c", "pass"]})
         self.assertEqual(status, 200, body)
         job_id = body["job_id"]
         self._assert_400_then_health(
