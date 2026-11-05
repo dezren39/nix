@@ -242,6 +242,10 @@ class Monitor:
                     self.drops[(role, ppid)] = (now, len(open_conns), pid)
                     self.emit("conn.drop", role=role, pid=pid, count=len(open_conns), cause="server-exit",
                               ports=sorted({c.split("->")[0].rsplit(":", 1)[-1] for c in open_conns}))
+                opened, closed = self.stats.pop(pid, [0, 0])
+                if opened or closed:
+                    self.emit("conn.stats", role=role, pid=pid, opened=opened, closed=closed,
+                              open_now=0, window_s=round(now - self.last_stats))
             for pid in sorted(set(procs) - set(self.procs)):
                 role, ppid, program = procs[pid]
                 parent = procs.get(ppid, (None,))[0] or ("launchd" if ppid == 1 else None)
