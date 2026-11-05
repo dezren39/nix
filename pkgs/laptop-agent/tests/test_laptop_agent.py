@@ -626,6 +626,89 @@ class PersistedJobTimestampTest(unittest.TestCase):
                     self.assertEqual(len(lines), 1, stderr)
                     self.assertIn(job_id, lines[0])
 
+    def test_nonfinite_timestamps_are_skipped(self):
+        la = self._import_agent()
+        cases = [
+            ("nan-started", {"started_at": float("nan"),
+                             "ended_at": 150.0}),
+            ("nan-ended", {"started_at": 100.0,
+                           "ended_at": float("nan")}),
+            ("inf-started", {"started_at": float("inf"),
+                             "ended_at": 150.0}),
+            ("neg-inf-started", {"started_at": float("-inf"),
+                                 "ended_at": 150.0}),
+            ("inf-ended", {"started_at": 100.0,
+                           "ended_at": float("inf")}),
+            ("neg-inf-ended", {"started_at": 100.0,
+                               "ended_at": float("-inf")}),
+        ]
+        for job_id, stamps in cases:
+            with self.subTest(job_id=job_id):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    bad = self._write_job(state_dir, job_id, **stamps)
+                    self._write_job(state_dir, "healthy",
+                                    started_at=100.0, ended_at=150.0)
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn(job_id, la.JOBS)
+                    self.assertIn("healthy", la.JOBS)
+                    self.assertTrue(bad.exists())
+                    lines = [ln for ln in stderr.splitlines()
+                             if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(bad), lines[0])
+
+    def test_oversized_int_timestamps_are_skipped(self):
+        # Codex review on PR #1534: math.isfinite(10**400) raises
+        # OverflowError (int too large to convert to float) instead
+        # of returning False, so an oversized integer timestamp must
+        # be skipped whole like the other malformed shapes, not
+        # escape load_persisted_jobs() and abort startup.
+        la = self._import_agent()
+        cases = [
+            ("huge-started", {"started_at": 10**400, "ended_at": 150.0}),
+            ("huge-ended", {"started_at": 100.0, "ended_at": 10**400}),
+        ]
+        for job_id, stamps in cases:
+            with self.subTest(job_id=job_id):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    bad = self._write_job(state_dir, job_id, **stamps)
+                    self._write_job(state_dir, "healthy",
+                                    started_at=100.0, ended_at=150.0)
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn(job_id, la.JOBS)
+                    self.assertIn("healthy", la.JOBS)
+                    self.assertTrue(bad.exists())
+                    lines = [ln for ln in stderr.splitlines()
+                             if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(bad), lines[0])
+
+    def test_nonfinite_skipped_summary_and_public_succeed(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            self._write_job(state_dir, "nan-started",
+                            started_at=float("nan"), ended_at=150.0)
+            self._write_job(state_dir, "inf-ended",
+                            started_at=100.0, ended_at=float("inf"))
+            self._write_job(state_dir, "healthy",
+                            started_at=100.0, ended_at=150.0)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(sorted(la.JOBS), ["healthy"])
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 2, stderr)
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                summaries = [la.job_summary(j)
+                             for j in list(la.JOBS.values())]
+                publics = [la.job_public(j)
+                           for j in list(la.JOBS.values())]
+                la.reap_old_jobs()
+            self.assertEqual([s["job_id"] for s in summaries],
+                             ["healthy"])
+            self.assertEqual(summaries[0]["duration_ms"], 50000)
+            self.assertEqual([p["job_id"] for p in publics],
+                             ["healthy"])
+            self.assertEqual(publics[0]["duration_ms"], 50000)
+
     def test_well_formed_restore_unchanged_and_running_interrupted(self):
         la = self._import_agent()
         with tempfile.TemporaryDirectory() as state_dir:
