@@ -4,6 +4,7 @@
 Run with: python3 -m unittest discover -s pkgs/laptop-agent/tests
 Wired as the flake check `laptop-agent-tests` (Linux).
 """
+import http.client
 import json
 import os
 import socket
@@ -273,6 +274,134 @@ class JobsListShapeTest(unittest.TestCase):
             proc.terminate()
             proc.wait(timeout=10)
             os.unlink(token_path)
+
+
+
+class MalformedRequestTest(unittest.TestCase):
+    """Issue #1502: malformed input returns 400 JSON, never a drop.
+
+    Oracle: for every malformed shape, the response is a well-formed
+    JSON body carrying an "error" key with status 400, AND a
+    subsequent authed GET /health on the same daemon returns 200 --
+    the invariant is that arbitrary body/query bytes can never kill
+    the handler or wedge the connection.
+    """
+
+    def setUp(self):
+        self.token = "<MASKED_SECRET_001>"
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write(self.token + "\n")
+            self.token_path = f.name
+        self.port = free_port()
+        env = dict(os.environ,
+                   LAPTOP_AGENT_TOKEN_FILE=self.token_path,
+                   LAPTOP_AGENT_HOST="127.0.0.1",
+                   LAPTOP_AGENT_PORT=str(self.port),
+                   LAPTOP_AGENT_STATE=tempfile.mkdtemp())
+        self.proc = subprocess.Popen([sys.executable, str(AGENT)], env=env,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE)
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            try:
+                status, body = self._call("GET", "/health")
+                if status == 200 and body.get("ok"):
+                    return
+            except Exception:
+                time.sleep(0.1)
+        self.tearDown()
+        self.fail("agent did not start")
+
+    def tearDown(self):
+        self.proc.terminate()
+        self.proc.wait(timeout=10)
+        os.unlink(self.token_path)
+
+    def _conn(self):
+        return http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+
+    def _call(self, method, path, body=None, raw=None, conn=None):
+        c = conn or self._conn()
+        headers = {"X-Agent-Token": self.token,
+                   "Content-Type": "application/json"}
+        data = raw if raw is not None else (
+            json.dumps(body).encode() if body is not None else None)
+        c.request(method, path, body=data, headers=headers)
+        r = c.getresponse()
+        payload = r.read()
+        if conn is None:
+            c.close()
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except ValueError:
+            parsed = {}
+        return r.status, parsed
+
+    def _assert_400_then_health(self, method, path, **kw):
+        status, body = self._call(method, path, **kw)
+        self.assertEqual(status, 400, body)
+        self.assertIn("error", body)
+        status, body = self._call("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
+    def test_invalid_json_body(self):
+        self._assert_400_then_health("POST", "/exec", raw=b"{not json")
+
+    def test_non_object_json_body(self):
+        self._assert_400_then_health("POST", "/exec", raw=b"[1, 2]")
+
+    def test_bad_content_length_header(self):
+        conn = self._conn()
+        conn.putrequest("POST", "/exec")
+        conn.putheader("X-Agent-Token", self.token)
+        conn.putheader("Content-Type", "application/json")
+        conn.putheader("Content-Length", "abc")
+        conn.endheaders()
+        r = conn.getresponse()
+        body = json.loads(r.read())
+        self.assertEqual(r.status, 400, body)
+        self.assertIn("error", body)
+        status, body = self._call("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
+    def test_exec_timeout_not_an_integer(self):
+        self._assert_400_then_health(
+            "POST", "/exec",
+            body={"cmds": [{"argv": [sys.executable, "-c", "pass"]}],
+                  "timeout_s": "abc"})
+
+    def test_exec_negative_timeout_is_clamped(self):
+        status, body = self._call(
+            "POST", "/exec",
+            body={"cmds": [{"argv": [sys.executable, "-c", "pass"]}],
+                  "timeout_s": -5})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["results"][0]["exit"], 0)
+        self.assertNotIn("timeout", body["results"][0])
+
+    def test_exec_cmd_without_argv_or_shell(self):
+        self._assert_400_then_health(
+            "POST", "/exec", body={"cmds": [{"cwd": "/"}]})
+
+    def test_jobs_without_argv_or_shell(self):
+        self._assert_400_then_health("POST", "/jobs", body={})
+
+    def test_jobs_argv_not_a_list(self):
+        self._assert_400_then_health(
+            "POST", "/jobs", body={"argv": "echo hi"})
+
+    def test_job_query_offsets_malformed(self):
+        status, body = self._call(
+            "POST", "/jobs",
+            body={"argv": [sys.executable, "-c", "pass"]})
+        self.assertEqual(status, 200, body)
+        job_id = body["job_id"]
+        self._assert_400_then_health(
+            "GET", f"/jobs/{job_id}?out_off=abc")
+        self._assert_400_then_health(
+            "GET", f"/jobs/{job_id}?err_off=-1")
 
 
 if __name__ == "__main__":
