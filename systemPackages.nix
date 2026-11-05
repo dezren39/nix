@@ -25,7 +25,8 @@ let
   # `open -a`) bypasses these wrappers; use the CDP app instead.
   # Firefox-family installs here (firefox, zen, zen@twilight
   # casks) have no CDP to enable -- their remote protocol is
-  # WebDriver BiDi, not configured; see code#5924.
+  # WebDriver BiDi, enabled structurally by firefoxFamilyBidi
+  # below; see code#5924.
   googleChromeCdp = pkgs.stdenvNoCC.mkDerivation {
     pname = "google-chrome-cdp";
     version = "1.0";
@@ -71,6 +72,85 @@ let
       platforms = pkgs.lib.platforms.darwin;
     };
   };
+  # Firefox-family with structural WebDriver BiDi (code#5924
+  # follow-up): Firefox, Zen and Zen Twilight have no CDP --
+  # --remote-debugging-port starts their WebDriver BiDi remote
+  # agent instead. Same launcher-app + CLI shape as
+  # googleChromeCdp above: the cask bundles cannot be wrapped
+  # in place, so each browser gets a "<Name> BiDi" app (linked
+  # into /Applications/Nix Apps) and a `<name>-bidi` CLI, both
+  # exec'ing the cask's real binary with the flag. The remote
+  # agent binds 127.0.0.1 itself; NO --remote-debugging-address
+  # flag (that is a Chromium flag; the Firefox agent has no
+  # such option) and no --remote-allow-origins: Firefox's
+  # default Host/Origin policy stays intact, so web content
+  # cannot hijack the socket and local tooling (no Origin)
+  # works as-is (verified against Firefox 159 on NixOS: BiDi
+  # listening on ws://127.0.0.1 + session.status round trip).
+  # Fleet port table, one place for every browser remote
+  # endpoint, loopback-only:
+  #   19222 Helium CDP        19225 Firefox BiDi
+  #   19223 Brave/Chrome CDP  19226 Zen BiDi
+  #   19224 Chromium CDP      19227 Zen Twilight BiDi
+  # Zen and Zen Twilight share one profile directory and
+  # bundle id (see casks.nix): only one can run at a time, so
+  # their distinct ports never collide in practice; distinct
+  # ports keep this table unambiguous about which binary a
+  # port belongs to. Residual gap, same as Chrome: launching
+  # the stock apps directly (Dock pin, Finder, `open -a`)
+  # bypasses these launchers; use the BiDi apps instead.
+  firefoxFamilyBidi = pkgs.stdenvNoCC.mkDerivation {
+    pname = "firefox-family-bidi";
+    version = "1.0";
+    src = null;
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p "$out/bin"
+
+      make_app() {
+        display="$1"; bin_name="$2"; target="$3"; port="$4"; ident="$5"
+        app="$out/Applications/$display.app"
+        mkdir -p "$app/Contents/MacOS"
+        cat > "$app/Contents/MacOS/$display" <<LAUNCHER
+      #!/bin/sh
+      exec "$target" --remote-debugging-port=$port "\$@"
+      LAUNCHER
+        chmod +x "$app/Contents/MacOS/$display"
+        cat > "$app/Contents/Info.plist" <<PLIST
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>CFBundleExecutable</key>
+        <string>$display</string>
+        <key>CFBundleIdentifier</key>
+        <string>local.drewrypope.$ident</string>
+        <key>CFBundleName</key>
+        <string>$display</string>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleShortVersionString</key>
+        <string>1.0</string>
+      </dict>
+      </plist>
+      PLIST
+        cat > "$out/bin/$bin_name" <<LAUNCHER
+      #!/bin/sh
+      exec "$target" --remote-debugging-port=$port "\$@"
+      LAUNCHER
+        chmod +x "$out/bin/$bin_name"
+      }
+
+      make_app "Firefox BiDi" firefox-bidi "/Applications/Firefox.app/Contents/MacOS/firefox" 19225 firefox-bidi
+      make_app "Zen BiDi" zen-bidi "/Applications/Zen.app/Contents/MacOS/zen" 19226 zen-bidi
+      make_app "Zen Twilight BiDi" zen-twilight-bidi "/Applications/Twilight.app/Contents/MacOS/zen" 19227 zen-twilight-bidi
+    '';
+    meta = {
+      description = "Firefox, Zen and Zen Twilight launchers with WebDriver BiDi remote debugging on loopback (19225/19226/19227)";
+      platforms = pkgs.lib.platforms.darwin;
+    };
+  };
+
 in
 {
   environment.systemPackages =
@@ -79,6 +159,7 @@ in
       colima
       cargo-cache # `cargo cache -r all` in ./clean; ~/.cargo has no built-in pruner
       googleChromeCdp # Chrome launcher with structural CDP on 127.0.0.1:19223 (code#5924)
+      firefoxFamilyBidi # Firefox/Zen/Zen Twilight launchers with structural WebDriver BiDi on 127.0.0.1:19225/19226/19227 (code#5924)
       duti # sets LaunchServices URL/UTI handlers; used to pin the default browser
       doggo
       docker-client
