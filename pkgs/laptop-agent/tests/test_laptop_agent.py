@@ -606,6 +606,32 @@ class PersistedJobTimestampTest(unittest.TestCase):
                     self.assertEqual(len(lines), 1, stderr)
                     self.assertIn(str(bad), lines[0])
 
+    def test_oversized_int_timestamps_are_skipped(self):
+        # Codex review on PR #1534: math.isfinite(10**400) raises
+        # OverflowError (int too large to convert to float) instead
+        # of returning False, so an oversized integer timestamp must
+        # be skipped whole like the other malformed shapes, not
+        # escape load_persisted_jobs() and abort startup.
+        la = self._import_agent()
+        cases = [
+            ("huge-started", {"started_at": 10**400, "ended_at": 150.0}),
+            ("huge-ended", {"started_at": 100.0, "ended_at": 10**400}),
+        ]
+        for job_id, stamps in cases:
+            with self.subTest(job_id=job_id):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    bad = self._write_job(state_dir, job_id, **stamps)
+                    self._write_job(state_dir, "healthy",
+                                    started_at=100.0, ended_at=150.0)
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn(job_id, la.JOBS)
+                    self.assertIn("healthy", la.JOBS)
+                    self.assertTrue(bad.exists())
+                    lines = [ln for ln in stderr.splitlines()
+                             if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(bad), lines[0])
+
     def test_nonfinite_skipped_summary_and_public_succeed(self):
         la = self._import_agent()
         with tempfile.TemporaryDirectory() as state_dir:

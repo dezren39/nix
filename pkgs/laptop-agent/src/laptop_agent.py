@@ -261,10 +261,19 @@ def load_persisted_jobs():
         # entry like an unreadable/invalid-JSON dir, naming the dir
         # on stderr, and leave the spool on disk.
         def _bad_ts(value):
-            return value is not None and (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(value))
+            if value is None:
+                return False
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return True
+            try:
+                return not math.isfinite(value)
+            except OverflowError:
+                # Oversized int (e.g. 10**400 from a JSON integer):
+                # isfinite() converts to float and raises instead of
+                # returning False. Such a timestamp is malformed for
+                # every consumer, so skip the entry rather than
+                # aborting startup (Codex review on PR #1534).
+                return True
 
         _bad_fields = [name for name in ("started_at", "ended_at")
                        if _bad_ts(meta.get(name))]
