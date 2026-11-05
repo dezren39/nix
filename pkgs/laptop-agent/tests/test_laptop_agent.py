@@ -561,5 +561,78 @@ class PersistedJobTimestampTest(unittest.TestCase):
             self.assertIsNone(bare["ended_at"])
 
 
+class ReaperStartupTest(unittest.TestCase):
+    """#1504: past-TTL finished jobs are reaped at startup, with no
+    new POST /jobs — the daemon is only ever health-polled here.
+
+    Oracle: a persisted done job whose ended_at is past the 24h TTL
+    loses both its index entry and its spool dir at startup, while a
+    within-TTL done job and a restored (interrupted) job survive.
+    """
+
+    def _write_job(self, state_dir, job_id, **meta):
+        spool = Path(state_dir) / "jobs" / job_id
+        spool.mkdir(parents=True)
+        meta.setdefault("id", job_id)
+        meta.setdefault("cwd", "/")
+        meta.setdefault("cmd", "test")
+        meta.setdefault("exit", 0)
+        meta.setdefault("state", "done")
+        (spool / "meta.json").write_text(json.dumps(meta))
+        (spool / "stdout").write_bytes(b"")
+        (spool / "stderr").write_bytes(b"")
+        return spool
+
+    def test_past_ttl_restored_job_reaped_at_startup(self):
+        now = time.time()
+        with tempfile.TemporaryDirectory() as state_dir:
+            old = self._write_job(state_dir, "old-done",
+                                  started_at=now - 26 * 3600,
+                                  ended_at=now - 25 * 3600)
+            fresh = self._write_job(state_dir, "fresh-done",
+                                    started_at=now - 7200,
+                                    ended_at=now - 3600)
+            running = self._write_job(state_dir, "was-running",
+                                      state="running", exit=None,
+                                      started_at=now - 26 * 3600,
+                                      ended_at=None)
+            with tempfile.NamedTemporaryFile("w", delete=False) as f:
+                f.write("reaper-test-token\n")
+                token_path = f.name
+            port = free_port()
+            env = dict(os.environ,
+                       LAPTOP_AGENT_TOKEN_FILE=token_path,
+                       LAPTOP_AGENT_HOST="127.0.0.1",
+                       LAPTOP_AGENT_PORT=str(port),
+                       LAPTOP_AGENT_STATE=state_dir)
+            proc = subprocess.Popen([sys.executable, str(AGENT)], env=env,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/jobs",
+                    headers={"X-Agent-Token": "reaper-test-token"})
+                deadline = time.time() + 15
+                jobs = None
+                while time.time() < deadline:
+                    try:
+                        with urllib.request.urlopen(req, timeout=2) as r:
+                            jobs = json.loads(r.read())["jobs"]
+                        break
+                    except (urllib.error.URLError, ConnectionError):
+                        time.sleep(0.1)
+                else:
+                    self.fail("agent did not start")
+                ids = {j["job_id"] for j in jobs}
+                self.assertEqual(ids, {"fresh-done", "was-running"})
+                self.assertFalse(old.exists())
+                self.assertTrue(fresh.exists())
+                self.assertTrue(running.exists())
+            finally:
+                proc.terminate()
+                proc.wait(timeout=10)
+                os.unlink(token_path)
+
+
 if __name__ == "__main__":
     unittest.main()
