@@ -173,6 +173,24 @@ fn token_ok(req: &tiny_http::Request, expected: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Parse SECRETS_BROKER_TTL_S (#1505, #918 shape): unset keeps the
+/// 900 s default; a present value must be a positive integer number
+/// of seconds. Anything else (non-numeric, empty, zero) is an error
+/// naming the variable and the offending value — a zero TTL would
+/// busy-loop the vault refresh, and a typo must not silently fall
+/// back to the default.
+fn parse_ttl(raw: Option<&str>) -> Result<u64, String> {
+    let Some(v) = raw else {
+        return Ok(900);
+    };
+    match v.trim().parse::<u64>() {
+        Ok(ttl) if ttl > 0 => Ok(ttl),
+        _ => Err(format!(
+            "SECRETS_BROKER_TTL_S={v:?} is invalid: must be a positive integer number of seconds"
+        )),
+    }
+}
+
 fn main() {
     let bind =
         std::env::var("SECRETS_BROKER_BIND").unwrap_or_else(|_| "100.99.113.103:4800".to_string());
@@ -189,10 +207,13 @@ fn main() {
         eprintln!("secrets-broker: token file {token_file} is empty; refusing to start");
         std::process::exit(3);
     }
-    let ttl_s: u64 = std::env::var("SECRETS_BROKER_TTL_S")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(900);
+    let ttl_s: u64 = match parse_ttl(std::env::var("SECRETS_BROKER_TTL_S").ok().as_deref()) {
+        Ok(ttl) => ttl,
+        Err(e) => {
+            eprintln!("secrets-broker: {e}");
+            std::process::exit(3);
+        }
+    };
 
     let state = Arc::new(State {
         secrets: RwLock::new(HashMap::new()),
@@ -292,4 +313,43 @@ fn url_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_ttl;
+
+    // Oracle for every case: the documented contract of
+    // SECRETS_BROKER_TTL_S — unset -> 900, a positive integer is
+    // used as-is, zero / non-numeric / empty is rejected by name.
+
+    #[test]
+    fn ttl_unset_uses_default() {
+        assert_eq!(parse_ttl(None), Ok(900));
+    }
+
+    #[test]
+    fn ttl_valid_value_is_used() {
+        assert_eq!(parse_ttl(Some("42")), Ok(42));
+        assert_eq!(parse_ttl(Some("900")), Ok(900));
+    }
+
+    #[test]
+    fn ttl_zero_is_rejected_by_name() {
+        let err = parse_ttl(Some("0")).unwrap_err();
+        assert!(err.contains("SECRETS_BROKER_TTL_S"), "{err}");
+        assert!(err.contains("\"0\""), "{err}");
+    }
+
+    #[test]
+    fn ttl_non_numeric_is_rejected_by_name() {
+        let err = parse_ttl(Some("abc")).unwrap_err();
+        assert!(err.contains("SECRETS_BROKER_TTL_S"), "{err}");
+        assert!(err.contains("abc"), "{err}");
+    }
+
+    #[test]
+    fn ttl_empty_is_rejected() {
+        assert!(parse_ttl(Some("")).is_err());
+    }
 }
