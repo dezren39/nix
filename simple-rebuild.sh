@@ -248,6 +248,17 @@ commit_marker() {
   git commit --no-verify --allow-empty -m "$1"
 }
 
+# Print error headlines in red and bold only when stderr is a terminal and
+# NO_COLOR is not set. These messages are often captured in build logs.
+print_error() {
+  local message="$1"
+  if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
+    print -P "%F{red}%B${message}%b%f" >&2
+  else
+    print -r -- "$message" >&2
+  fi
+}
+
 # Every commit here is --allow-empty: the point is to mark *when* a build or an
 # activation happened, which is information even when no file changed. A build
 # names the store path it produced, because that is the only identity a build
@@ -289,7 +300,7 @@ phase_build() {
     # step, Homebrew included, twice. Both of those failures were real mcpx
     # test races; see the mcpx commits that day.
     {
-      print -P "%F{red}%B==> build failed; nothing activated, nothing committed%b%f"
+      print_error "==> build failed; nothing activated, nothing committed"
       if (( build_status != 0 )); then
         echo "    The failing derivation and its last log lines are above."
         echo "    Full log: nix log <the .drv named in 'Cannot build'>"
@@ -430,7 +441,7 @@ agent_answers() {
 # above; the app log alone was empty for the first.
 report_agent() {
   local label="$1" url="$2" info errlog
-  print -P "%F{red}%B==> $label is not up%b%f"
+  print_error "==> $label is not up"
   if ! info=$(launchctl print "gui/$(id -u)/$label" 2>&1); then
     echo "    not loaded in gui/$(id -u)"
     return 0
@@ -473,7 +484,7 @@ check_services() {
     done
   done
   if (( failed )); then
-    print -P "%F{red}%B==> switch done and recorded, but $failed agent(s) are not up (above)%b%f" >&2
+    print_error "==> switch done and recorded, but $failed agent(s) are not up (above)" >&2
     return 1
   fi
 }

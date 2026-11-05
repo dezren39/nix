@@ -128,6 +128,39 @@ expect_help() { # expect_help <flag>
 expect_help --help
 expect_help -h
 
+# --- Error headline color gate follows stderr's tty + NO_COLOR state ----
+GATE="$TMP_ROOT/color-gate.zsh"
+awk '/^print_error\(\) \{$/ { capture=1 } capture { print } capture && /^}$/ { exit }' "$SCRIPT" >"$GATE"
+[ -s "$GATE" ] || { echo "could not extract print_error from simple-rebuild.sh" >&2; exit 1; }
+grep -Fq '[[ -t 2 && -z "${NO_COLOR:-}" ]]' "$GATE" \
+  || fail "error color gate must test stderr tty and NO_COLOR"
+grep -Fq 'print_error "==> build failed; nothing activated, nothing committed"' "$SCRIPT" \
+  || fail "build failure headline does not use print_error"
+grep -Fq 'print_error "==> $label is not up"' "$SCRIPT" \
+  || fail "agent failure headline does not use print_error"
+grep -Fq 'print_error "==> switch done and recorded, but $failed agent(s) are not up (above)" >&2' "$SCRIPT" \
+  || fail "activation health headline does not use print_error on stderr"
+
+GATE_PROBE="$TMP_ROOT/color-gate-probe.zsh"
+cat >"$GATE_PROBE" <<EOF
+source "$GATE"
+print_error "gate probe"
+EOF
+for gate_mode in captured no-color; do
+  if [ "$gate_mode" = no-color ]; then
+    NO_COLOR=1 zsh "$GATE_PROBE" >"$TMP_ROOT/gate.out" 2>"$TMP_ROOT/gate.err"
+  else
+    zsh "$GATE_PROBE" >"$TMP_ROOT/gate.out" 2>"$TMP_ROOT/gate.err"
+  fi
+  gate_err="$(cat "$TMP_ROOT/gate.err")"
+  [ ! -s "$TMP_ROOT/gate.out" ] || fail "$gate_mode error headline wrote to stdout"
+  [ "$gate_err" = "gate probe" ] || fail "$gate_mode stderr was '$gate_err' (want plain 'gate probe')"
+  case "$gate_err" in
+    *$'\033'*) fail "$gate_mode captured stderr contains ANSI escape bytes" ;;
+    *) ok "$gate_mode stderr is plain and escape-free" ;;
+  esac
+done
+
 # --- HEALTH_TIMEOUT validation runs inside the extracted segment -----
 OUT="$(HEALTH_TIMEOUT=abc zsh "$PROBE" 2>"$TMP_ROOT/err")"; STATUS=$?
 ERR="$(cat "$TMP_ROOT/err")"
