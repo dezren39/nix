@@ -9,6 +9,7 @@ import http.client
 import io
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -404,6 +405,85 @@ class JobSlotsTest(unittest.TestCase):
             proc.terminate()
             proc.wait(timeout=10)
             os.unlink(token_path)
+
+    def test_spool_creation_failure_returns_400_and_releases_slot(self):
+        token = "jobs-spool-failure-test-token"
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write(token + "\n")
+            token_path = f.name
+        state_dir = tempfile.mkdtemp()
+        port = free_port()
+        env = dict(os.environ,
+                   LAPTOP_AGENT_TOKEN_FILE=token_path,
+                   LAPTOP_AGENT_HOST="127.0.0.1",
+                   LAPTOP_AGENT_PORT=str(port),
+                   LAPTOP_AGENT_SLOTS="1",
+                   LAPTOP_AGENT_STATE=state_dir)
+        proc = subprocess.Popen([sys.executable, str(AGENT)], env=env,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        headers = {"X-Agent-Token": token,
+                   "Content-Type": "application/json"}
+
+        def call(method, path, body=None):
+            data = json.dumps(body).encode() if body is not None else None
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}{path}", data=data,
+                headers=headers, method=method)
+            try:
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    return r.status, json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                with e:
+                    return e.code, json.loads(e.read())
+
+        try:
+            deadline = time.time() + 10
+            while True:
+                try:
+                    status, body = call("GET", "/health")
+                    if status == 200 and body["ok"]:
+                        break
+                except Exception:
+                    if time.time() > deadline:
+                        raise
+                    time.sleep(0.1)
+
+            # Replace the initialized spool parent after startup.  mkdir for
+            # the job's directory now fails with ENOTDIR, after slot acquire.
+            jobs_dir = Path(state_dir) / "jobs"
+            jobs_dir.rmdir()
+            jobs_dir.write_text("not a directory")
+            status, body = call("POST", "/jobs", {
+                "cwd": "/", "argv": [sys.executable, "-c", "pass"]})
+            self.assertEqual(status, 400, body)
+            self.assertIn("error", body)
+
+            jobs_dir.unlink()
+            jobs_dir.mkdir()
+            status, body = call("POST", "/jobs", {
+                "cwd": "/", "argv": [sys.executable, "-c", "pass"]})
+            self.assertEqual(status, 200, body)
+            job_id = body["job_id"]
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                status, job = call("GET", f"/jobs/{job_id}")
+                if status == 200 and job.get("state") == "done":
+                    break
+                time.sleep(0.05)
+            self.assertEqual(status, 200, job)
+            self.assertEqual(job.get("state"), "done", job)
+
+            status, body = call("POST", "/exec", {
+                "cmds": [{"argv": [sys.executable, "-c", "pass"]}]})
+            self.assertEqual(status, 200, body)
+        finally:
+            proc.terminate()
+            proc.wait(timeout=10)
+            proc.stdout.close()
+            proc.stderr.close()
+            os.unlink(token_path)
+            shutil.rmtree(state_dir, ignore_errors=True)
 
 
 class MalformedRequestTest(unittest.TestCase):

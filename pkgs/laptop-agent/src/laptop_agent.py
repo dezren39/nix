@@ -585,44 +585,73 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "argv or shell required"})
             if not SEMA.acquire(timeout=5):
                 return self._send(503, {"error": "busy"})
-            job_id = secrets.token_hex(6)
-            d = job_dir(job_id)
-            d.mkdir(parents=True, exist_ok=True)
-            env = dict(os.environ)
-            env.update(body.get("env") or {})
-            out_f = open(d / "stdout", "wb")
-            err_f = open(d / "stderr", "wb")
+            job_id = d = None
+            out_f = err_f = proc = None
+            watch_thread = None
+            watch_started = False
             try:
+                job_id = secrets.token_hex(6)
+                d = job_dir(job_id)
+                d.mkdir(parents=True, exist_ok=True)
+                env = dict(os.environ)
+                env.update(body.get("env") or {})
+                out_f = open(d / "stdout", "wb")
+                err_f = open(d / "stderr", "wb")
                 proc = subprocess.Popen(argv, cwd=cwd, env=env,
                                         stdout=out_f, stderr=err_f,
                                         start_new_session=True)
-            except Exception as e:
-                SEMA.release()
-                for f in (out_f, err_f):
-                    f.close()
-                shutil.rmtree(d, ignore_errors=True)
-                return self._send(400, {"error": f"{type(e).__name__}: {e}"})
-            job = {"id": job_id, "proc": proc, "cwd": cwd,
-                   "cmd_repr": cmd_repr, "started_at": time.time(),
-                   "ended_at": None, "exit": None, "state": "running",
-                   "interrupted": False, "_files": (out_f, err_f)}
-            _write_meta(job)
-            with JOBS_LOCK:
-                JOBS[job_id] = job
+                job = {"id": job_id, "proc": proc, "cwd": cwd,
+                       "cmd_repr": cmd_repr, "started_at": time.time(),
+                       "ended_at": None, "exit": None, "state": "running",
+                       "interrupted": False, "_files": (out_f, err_f)}
+                _write_meta(job)
+                with JOBS_LOCK:
+                    JOBS[job_id] = job
 
-            def watch(j=job):
-                try:
-                    j["proc"].wait()
-                finally:
-                    SEMA.release()
-                j["ended_at"] = time.time()
-                for f in j["_files"]:
+                def watch(j=job):
                     try:
-                        f.close()
-                    except OSError:
+                        j["proc"].wait()
+                    finally:
+                        SEMA.release()
+                    j["ended_at"] = time.time()
+                    for f in j["_files"]:
+                        try:
+                            f.close()
+                        except OSError:
+                            pass
+                    job_state(j)
+
+                watch_thread = threading.Thread(target=watch, daemon=True)
+                watch_thread.start()
+                watch_started = True
+            except Exception as e:
+                # Thread.start() can raise after the new thread has begun.
+                # In that case its finally block owns the acquired slot.
+                if watch_thread is not None and watch_thread.ident is not None:
+                    watch_started = True
+                if not watch_started:
+                    try:
+                        if proc is not None:
+                            try:
+                                proc.kill()
+                                proc.wait(timeout=5)
+                            except (OSError, subprocess.TimeoutExpired):
+                                pass
+                        with JOBS_LOCK:
+                            JOBS.pop(job_id, None)
+                        for f in (out_f, err_f):
+                            if f is not None:
+                                try:
+                                    f.close()
+                                except OSError:
+                                    pass
+                        if d is not None:
+                            shutil.rmtree(d, ignore_errors=True)
+                    except Exception:
                         pass
-                job_state(j)
-            threading.Thread(target=watch, daemon=True).start()
+                    finally:
+                        SEMA.release()
+                return self._send(400, {"error": f"{type(e).__name__}: {e}"})
             reap_old_jobs()
             return self._send(200, {"job_id": job_id})
         if path.startswith("/jobs/") and path.endswith("/kill"):
