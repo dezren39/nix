@@ -434,6 +434,27 @@ class MalformedRequestTest(unittest.TestCase):
             body={"cmds": [{"argv": [sys.executable, "-c", "pass"]}],
                   "timeout_s": "abc"})
 
+    def test_exec_non_finite_timeout_is_rejected(self):
+        conn = self._conn()
+        try:
+            for timeout in (float("inf"), float("-inf")):
+                with self.subTest(timeout=timeout):
+                    status, body = self._call(
+                        "POST", "/exec",
+                        body={"cmds": [{"argv": [sys.executable, "-c",
+                                                  "pass"]}],
+                              "timeout_s": timeout},
+                        conn=conn)
+                    self.assertEqual(status, 400, body)
+                    self.assertEqual(
+                        body.get("error"), "timeout_s must be an integer")
+                    status, body = self._call(
+                        "GET", "/health", conn=conn)
+                    self.assertEqual(status, 200, body)
+                    self.assertTrue(body["ok"])
+        finally:
+            conn.close()
+
     def test_exec_negative_timeout_is_clamped(self):
         status, body = self._call(
             "POST", "/exec",
