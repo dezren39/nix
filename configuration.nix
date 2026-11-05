@@ -10,17 +10,6 @@
   ...
 }:
 let
-  # The mcpx launchd agent's program (see launchd.user.agents.mcpx). Built in
-  # the store, installed as a copy at the fixed mcpxAgentPath so the agent's
-  # executable, and the name macOS shows for it, never change.
-  mcpxAgent = pkgs.writeShellScript "mcpx" ''
-    cfg=/Users/drewry.pope/.config/mcpx/config.json
-    ${serviceEvents}/bin/service-event mcpx-agent agent.start pid=$$ \
-      mcpx=${inputs.self.packages.${system}.mcpx} || true
-    ${inputs.self.packages.${system}.mcpx}/bin/mcpx --config "$cfg" stop || true
-    exec ${inputs.self.packages.${system}.mcpx}/bin/mcpx daemon --config "$cfg"
-  '';
-  mcpxAgentPath = "/usr/local/libexec/mcpx/mcpx";
   serviceEvents = inputs.self.packages.${system}.service-events;
 in
 lib.recursiveUpdate {
@@ -648,20 +637,6 @@ lib.recursiveUpdate {
   # src/sidepulse/lid_sleep.py, or sidepulse decides the file drifted and
   # re-prompts on every launch.
   system.activationScripts.extraActivation.text = ''
-    # mcpx's launchd agent runs the fixed path ${mcpxAgentPath} (see
-    # launchd.user.agents.mcpx). Refresh the copy here, before launchd is set
-    # up, and remember whether it changed so postActivation restarts the
-    # agent: its plist no longer changes when mcpx does. Root-owned and not
-    # user-writable, like the store copy it mirrors.
-    mcpxAgentChanged=0
-    if ! /usr/bin/cmp -s ${mcpxAgent} ${mcpxAgentPath}; then
-      echo "installing ${mcpxAgentPath}" >&2
-      /bin/mkdir -p "$(/usr/bin/dirname ${mcpxAgentPath})"
-      /usr/bin/install -o root -g wheel -m 0755 ${mcpxAgent} ${mcpxAgentPath}.tmp
-      /bin/mv -f ${mcpxAgentPath}.tmp ${mcpxAgentPath}
-      mcpxAgentChanged=1
-    fi
-
     sidepulseSudoers=/etc/sudoers.d/sidepulse-disablesleep
     sidepulseRule='${config.system.primaryUser} ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 0, /usr/bin/pmset -a disablesleep 1'
 
@@ -698,14 +673,6 @@ lib.recursiveUpdate {
 
     if /bin/launchctl list | grep -q org.nixos.skhd; then
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
-    fi
-
-    # A new mcpx (or launcher) was installed at ${mcpxAgentPath} in
-    # extraActivation; restart the agent onto it. The plist is unchanged, so
-    # nix-darwin's user launchd step did not.
-    if [ "''${mcpxAgentChanged:-0}" = 1 ]; then
-      echo "restarting org.nixos.mcpx onto the new ${mcpxAgentPath}" >&2
-      /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u ${config.system.primaryUser})/org.nixos.mcpx" || true
     fi
 
     # Xcode and the Command Line Tools ask for their license to be accepted
@@ -957,6 +924,47 @@ lib.recursiveUpdate {
   # the home directory literal rather than "$HOME/go"; the HIST* variables are
   # deliberately omitted because they only mean anything to an interactive
   # shell, which already gets them from the profile.
+  # The mcpx daemon (#343): the reusable darwin module
+  # (darwinModules.mcpx, imported in flake.nix) now owns the launchd
+  # agent this file used to hand-roll below -- same fixed program
+  # path (/usr/local/libexec/mcpx/mcpx, refreshed by the module's
+  # activation scripts), same semantics: RunAtLoad, KeepAlive, a 20 s
+  # ExitTimeOut, $HOME as working directory, logs at
+  # ~/Library/Logs/mcpx.log, and a wrapper that stops whatever
+  # already serves the config's socket before starting. The module
+  # starts the daemon on its rendered configFile and points clients
+  # at it with MCPX_CONFIG, so every client computes the same daemon
+  # socket without the ~/.config/mcpx/config.json path having to be
+  # the daemon's config. homeUser.nix still writes that file from the
+  # same mcpx.config.nix for the clients that name it explicitly.
+  #
+  # settings is mcpx.config.nix verbatim: the module renders it to
+  # config.json exactly as homeUser.nix does (builtins.toJSON of the
+  # same import), so the daemon's config does not change.
+  #
+  # Two conscious deltas from the hand-rolled agent:
+  # - Its service-events start hook is gone: the canonical module
+  #   deliberately omits it (its header says so); mcpx starts are no
+  #   longer recorded in the service-events log.
+  # - environment.PATH below preserves the hand-rolled agent's PATH
+  #   (the MCP servers mcpx.config.nix starts inherit it).
+  services.mcpx = {
+    enable = true;
+    package = inputs.self.packages.${system}.mcpx;
+    settings = import ./mcpx.config.nix { inherit lib; };
+    environment.PATH = (
+      lib.makeBinPath [
+        pkgs.bash
+        pkgs.coreutils
+        pkgs.nodejs
+        inputs.self.packages.${system}.codedb
+        pkgs.codebase-memory-mcp
+        pkgs.fff-mcp
+      ]
+      + ":/usr/bin:/bin"
+    );
+  };
+
   launchd.user.envVariables = {
     EDITOR = "zed --wait";
     LANG = "en_US.UTF-8";
@@ -1001,72 +1009,6 @@ lib.recursiveUpdate {
         ];
         StandardErrorPath = "/tmp/natural_scrolling.err.log";
         StandardOutPath = "/tmp/natural_scrolling.out.log";
-      };
-    };
-    # The mcpx daemon, started at login and kept running, so the first `mcpx`
-    # command in a shell does not pay for a cold start.
-    #
-    # It reads ~/.config/mcpx/config.json (homeUser.nix, from mcpx.config.nix).
-    # The working directory is $HOME on purpose: mcpx keys a daemon by the set
-    # of config files it finds searching up from where it starts, and a CLI run
-    # from a directory with no project config finds the same set, so it uses
-    # this daemon instead of starting its own.
-    #
-    # The program is a fixed path, /usr/local/libexec/mcpx/mcpx, not a store
-    # path. macOS lists a background item under its executable's file name and
-    # tracks it by path: the store path of the old writeShellScript wrapper
-    # showed as "d0b6q5234j1gab2qwswfimg23zgk1w2f-mcpx-agent", and every mcpx
-    # build (9 path changes Oct 2-22) gave it a new name and executable. The
-    # fixed file is a copy of mcpxAgent, refreshed by extraActivation below
-    # before launchd is set up; since the plist no longer changes with mcpx,
-    # postActivation kickstarts the agent whenever the copy changed.
-    mcpx = {
-      serviceConfig = {
-        EnvironmentVariables.HOME = "/Users/drewry.pope";
-        # The MCP servers it starts (mcpx.config.nix runs them by absolute
-        # path; their own children use this PATH). mcpx's own wrapper adds
-        # deno, bun, node and git for scripts.
-        EnvironmentVariables.PATH = lib.mkForce (
-          lib.makeBinPath [
-            pkgs.bash
-            pkgs.coreutils
-            pkgs.nodejs
-            inputs.self.packages.${system}.codedb
-            pkgs.codebase-memory-mcp
-            pkgs.fff-mcp
-          ]
-          + ":/usr/bin:/bin"
-        );
-        KeepAlive = true;
-        RunAtLoad = true;
-        # launchd's default here is 5 s before SIGKILL, but mcpx's stop can
-        # take up to 10 s: it drains HTTP (http.shutdownGrace, 5 s, capped to
-        # the window) and stops its MCP server processes, all bounded by
-        # limits.execDrainTimeout (10 s; internal/daemon/server.go
-        # stopServing). So every restart was cut off mid-shutdown.
-        ExitTimeOut = 20;
-        WorkingDirectory = "/Users/drewry.pope";
-        # --config, not discovery: at login or right after `just switch` this
-        # can start before the file is in place. Named explicitly, a missing
-        # file is an error, the process exits and KeepAlive retries.
-        #
-        # mcpx names its socket after the config file's resolved path, so it
-        # matches what every CLI computes only because homeUser.nix
-        # (mcpxConfig) writes a real file at this fixed path.
-        #
-        # Before starting, stop whatever already serves this socket. launchd
-        # never runs two copies of one job, so that is a daemon something else
-        # started -- the CLI's autostart did on 2026-10-19 (now off in
-        # mcpx.config.nix), and the OpenCode fork's mcpx plugin still can
-        # (developing-today-forks/opencode#134). Left
-        # running, it holds the socket, this daemon exits "a daemon is already
-        # listening", and KeepAlive respawns it every 10 s (822 times that day).
-        ProgramArguments = [ mcpxAgentPath ];
-        # Not /tmp: that is emptied at boot, taking the evidence of what went
-        # wrong before it. service-monitor size-bounds this file
-        # (dezren39/nix#668).
-        StandardErrorPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
-        StandardOutPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
       };
     };
     # The service lifecycle event log, ~/Library/Logs/nix-services/events.jsonl:
