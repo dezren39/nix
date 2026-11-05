@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/fleet/mcpx-identity-transport.md
+
 # mcpx identity transport: comparison and recommendation for #297
 
 - Status: decision made 2026-10-28 (queue task 2654, lane A). No code in

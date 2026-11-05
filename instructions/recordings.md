@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/platform/recordings.md
+
 # Recordings: append the moments worth remembering
 
 When something happens in a session that you would stop and tell the user about,

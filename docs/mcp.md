@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/fleet/mcp.md
+
 # MCP servers
 
 Every MCP server on this machine runs under mcpx, the gateway daemon described in

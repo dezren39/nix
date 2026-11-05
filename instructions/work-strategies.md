@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/platform/work-strategies.md
+
 # How to work here
 
 Written from a long multi-agent session that went badly before it went well. Every rule below is

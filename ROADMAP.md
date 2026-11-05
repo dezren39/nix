@@ -19,9 +19,9 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ## mcpx moves to developing-today/code
 
-`developing-today/code` is the only place the mcpx source lives (`pkgs/mcpx` there). This repo first built it from a pinned source-only flake input (#468); since #1388 (2026-11-03) it no longer builds mcpx at all - the fork's build arrives through the openchamber -> opencode chain and flake.nix only re-exposes it. The vendored copy that used to sit at `pkgs/mcpx` here is deleted. The plan was [`planning/plans/mcpx-extraction.md`](planning/plans/mcpx-extraction.md).
+The mcpx plans are canonical in `developing-today/code`: [`doc/fleet/mcpx-extraction.md`](https://github.com/developing-today/code/blob/main/doc/fleet/mcpx-extraction.md), [`doc/fleet/mcpx-identity-transport.md`](https://github.com/developing-today/code/blob/main/doc/fleet/mcpx-identity-transport.md) and [`doc/fleet/mcpx-oauth-authorization-server.md`](https://github.com/developing-today/code/blob/main/doc/fleet/mcpx-oauth-authorization-server.md) (historical copies remain under `planning/plans/` here). mcpx source lives only in code's `pkgs/mcpx`; since #1388 (2026-11-03) this repo no longer builds mcpx at all - the fork's build arrives through the openchamber -> opencode chain and flake.nix only re-exposes it.
 
-The OpenCode fork now bundles its own mcpx build (of code's `pkgs/mcpx`); that bundled build is the one this repo runs - the same build the mcpx daemon modules default to, so no consumer-passed override remains.
+How the services run day to day is canonical at [`doc/fleet/services.md`](https://github.com/developing-today/code/blob/main/doc/fleet/services.md) and [`doc/fleet/mcp.md`](https://github.com/developing-today/code/blob/main/doc/fleet/mcp.md) in `developing-today/code`.
 
 | Title                                    | Horizon | Status   | Intent                                                                                                             | Links                                                                  |
 | ---------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |

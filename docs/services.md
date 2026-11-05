@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/fleet/services.md
+
 # The long-running services: OpenChamber, OpenCode, mcpx
 
 How the three services this flake keeps running are started, replaced on a

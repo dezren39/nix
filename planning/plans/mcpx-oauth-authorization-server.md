@@ -1,3 +1,5 @@
+Canonical: https://github.com/developing-today/code/blob/main/doc/fleet/mcpx-oauth-authorization-server.md
+
 # mcpx OAuth authorization server: embed-vs-point-at recommendation for #345
 
 - Status: decision made 2026-10-28 (queue task 2666, lane A). No code in
