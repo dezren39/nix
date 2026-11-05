@@ -554,6 +554,30 @@ class PersistedJobTimestampTest(unittest.TestCase):
             self.assertEqual([s["job_id"] for s in summaries],
                              ["healthy"])
 
+    def test_done_null_ended_at_stamped_and_reapable(self):
+        # Issue #1532: a restored done job with ended_at=null kept the
+        # null, so the reaper read it as "now" (spool retained forever)
+        # and duration_ms grew with wall-clock time. Oracle: at load it
+        # gets a finite stamp, duration is stable across reads, and
+        # the reaper removes it (index + spool) once past TTL.
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            now = time.time()
+            spool = self._write_job(state_dir, "done-null-ended",
+                                    started_at=now - 48 * 3600,
+                                    ended_at=None)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            job = la.JOBS["done-null-ended"]
+            self.assertIsInstance(job["ended_at"], float)
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                first = la.job_summary(job)["duration_ms"]
+                second = la.job_summary(job)["duration_ms"]
+                self.assertEqual(first, second)
+                with patch.object(la, "JOB_TTL_S", -1):
+                    la.reap_old_jobs()
+            self.assertNotIn("done-null-ended", la.JOBS)
+            self.assertFalse(spool.exists())
     def test_non_object_meta_skipped_healthy_kept(self):
         # Issue #1522: meta.json that is valid JSON but not an object
         # gets the same skip contract as malformed timestamps.
@@ -624,7 +648,9 @@ class PersistedJobTimestampTest(unittest.TestCase):
             self.assertEqual(running["started_at"], 100.0)
             bare = la.JOBS["no-stamps"]
             self.assertEqual(bare["started_at"], 0.0)
-            self.assertIsNone(bare["ended_at"])
+            # #1532 supersedes the #1513 default for a done job: a
+            # null/missing ended_at gets a finite load-time stamp.
+            self.assertIsInstance(bare["ended_at"], float)
 
 
 class ReaperStartupTest(unittest.TestCase):

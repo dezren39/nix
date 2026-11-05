@@ -282,6 +282,7 @@ def load_persisted_jobs():
         exit_code = meta.get("exit")
         ended_at = meta.get("ended_at")
         interrupted = False
+        stamped = False
         if state == "running":
             # The process did not survive the restart: nobody can poll it.
             state = "done"
@@ -290,6 +291,15 @@ def load_persisted_jobs():
             # A finite end time is what lets the reaper apply TTL to the
             # restored job's spool; leaving it null retains it forever.
             ended_at = time.time()
+        elif ended_at is None:
+            # A restored done job with a null/missing end time (#1532):
+            # the reaper reads null as "now", so its spool would be
+            # retained forever, and duration_ms would grow with
+            # wall-clock time on every poll. Mirror the interrupted
+            # branch: stamp a finite end time at load and persist it,
+            # so the TTL runs from the stamp and duration is stable.
+            ended_at = time.time()
+            stamped = True
         JOBS[job_id] = {"id": job_id, "proc": None,
                         "cwd": meta.get("cwd") or str(Path.home()),
                         "cmd_repr": meta.get("cmd") or "",
@@ -297,7 +307,7 @@ def load_persisted_jobs():
                         "ended_at": ended_at,
                         "exit": exit_code, "state": state,
                         "interrupted": interrupted, "_files": ()}
-        if interrupted:
+        if interrupted or stamped:
             _write_meta(JOBS[job_id])
 
 
