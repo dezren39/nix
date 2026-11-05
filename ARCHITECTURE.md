@@ -45,7 +45,7 @@ rebuild.sh r / simple-rebuild.sh s / clean(.sh) / path.sh   Rebuild + cleanup sc
 symlinker.sh           Large bash symlink manager (source for pkgs/symlinker)
 .aerospace.toml        AeroSpace tiling WM config
 mcpx.config.nix        Every MCP server, and how mcpx pools it
-config.toml            VSCode extension source-of-truth list (used by code-install-extensions.sh)
+config.toml            VSCode extension-list mirror (installer commands are effective; all copies are drift-checked)
 .github/workflows/     opencode.yml (/oc comment bot), mcpx-nixbuild.yml (mcpx package build)
 ```
 

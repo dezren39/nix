@@ -1161,7 +1161,8 @@ rec {
               bash ./brew-repair.test.sh
               touch $out
             '';
-        # #1287: code-install-extensions.test.sh drives the real
+        # #1547: compare the three extension-list copies and mutation-test
+        # the drift detector before #1287's behavior test drives the real
         # code-install-extensions.sh with a stub `code` — a failed
         # install used to exit 0 unless it was the script's last line,
         # so the all-succeed, middle-failure, last-line-failure, and
@@ -1182,9 +1183,13 @@ rec {
             ''
               cp ${./code-install-extensions.sh} code-install-extensions.sh
               cp ${./code-install-extensions.test.sh} code-install-extensions.test.sh
-              chmod u+w code-install-extensions.sh code-install-extensions.test.sh
+              cp ${./code-install-extensions-drift.test.sh} code-install-extensions-drift.test.sh
+              cp ${./config.toml} config.toml
+              cp ${./vsc-extensions.txt} vsc-extensions.txt
+              chmod u+w code-install-extensions.sh code-install-extensions.test.sh code-install-extensions-drift.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
+              bash ./code-install-extensions-drift.test.sh
               bash ./code-install-extensions.test.sh
               touch $out
             '';

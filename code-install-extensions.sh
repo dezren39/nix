@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # code-install-extensions.sh — install the VS Code extensions listed in
-# config.toml (the source-of-truth list, ARCHITECTURE.md).
+# the commands below. config.toml and vsc-extensions.txt are checked copies;
+# code-install-extensions-tests detects drift among all three lists.
 #
 # The `code --install-extension <id> --force` lines below are the list
 # itself and are intentionally left bare: the `code` function defined
