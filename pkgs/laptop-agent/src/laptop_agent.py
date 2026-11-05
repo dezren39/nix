@@ -50,6 +50,7 @@ MAX_OUT = 1 << 20            # per-stream capture cap for /exec (tail kept)
 EXEC_TIMEOUT_DEFAULT = 120
 EXEC_TIMEOUT_MAX = 600
 JOB_TTL_S = 24 * 3600
+REAP_INTERVAL_S = 3600       # background reaper cadence (#1504)
 KILL_GRACE_S = 5
 SEMA = threading.Semaphore(int(os.environ.get("LAPTOP_AGENT_SLOTS", "32")))
 STARTED = time.time()
@@ -559,10 +560,28 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "no such route"})
 
 
+def _reaper_loop():
+    """Reap on a timer so the TTL fires without a new job (#1504).
+
+    reap_old_jobs() used to run only from the POST /jobs path, so a
+    daemon serving only /exec + /health + job polls never reaped and
+    finished jobs' uncapped spool dirs accumulated forever.
+    """
+    while True:
+        time.sleep(REAP_INTERVAL_S)
+        try:
+            reap_old_jobs()
+        except Exception as e:  # a reaper fault must not kill the daemon
+            print(f"laptop-agent: background reap failed: {e}",
+                  file=sys.stderr, flush=True)
+
+
 def main():
     (STATE_DIR / "jobs").mkdir(parents=True, exist_ok=True)
     (STATE_DIR / "exec").mkdir(parents=True, exist_ok=True)
     load_persisted_jobs()
+    reap_old_jobs()
+    threading.Thread(target=_reaper_loop, daemon=True).start()
     srv = ThreadingHTTPServer((BIND_HOST, BIND_PORT), Handler)
     print(f"laptop-agent listening on {BIND_HOST}:{BIND_PORT}", flush=True)
     srv.serve_forever()
