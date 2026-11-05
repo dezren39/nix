@@ -235,5 +235,62 @@ runCommand "service-events"
     monitor.sockets = lambda pids: {4321: (set(), set())}
     m1380c.tick()
     assert "conn.close" in [e for e, f in captured1380], captured1380
+    # #1514: pending connection counts are flushed exactly once when their
+    # server exits, without changing the regular live-pid interval flush.
+    captured1514 = []
+    monitor.append_event = lambda source, event, **f: captured1514.append((event, f))
+    conn_old1514 = "10.0.0.1:443->10.0.0.2:5000"
+    conn_new1514 = "10.0.0.1:443->10.0.0.3:5000"
+    monitor.launchd_jobs = lambda: {}
+    monitor.processes = lambda: {1514: ("opencode", 1, "opencode")}
+    monitor.sockets = lambda pids: {1514: ({"443"}, {conn_new1514})}
+    m1514 = monitor.Monitor()
+    m1514.first = False
+    m1514.last_stats = time.time()
+    m1514.last_rotate = time.time()
+    m1514.procs = {1514: ("opencode", 1, "opencode")}
+    m1514.conns = {1514: {conn_old1514: time.time() - 5}}
+    m1514.tick()
+    assert m1514.stats == {1514: [1, 1]}, m1514.stats
+    # Force the interval to elapse before the next successful sample sees
+    # the server exit, just as the discarded-window case does.
+    m1514.last_stats = time.time() - monitor.STATS_EVERY_S - 1
+    monitor.processes = lambda: {}
+    monitor.sockets = lambda pids: {}
+    captured1514.clear()
+    m1514.tick()
+    final_stats1514 = [f for e, f in captured1514 if e == "conn.stats"]
+    assert len(final_stats1514) == 1, captured1514
+    assert final_stats1514[0]["pid"] == 1514 and final_stats1514[0]["opened"] == 1 \
+        and final_stats1514[0]["closed"] == 1 and final_stats1514[0]["open_now"] == 0, final_stats1514
+    assert [e for e, f in captured1514].count("process.exit") == 1, captured1514
+    assert [e for e, f in captured1514].count("conn.drop") == 1, captured1514
+    assert m1514.stats == {}, m1514.stats
+    # A later interval cannot emit the exited pid's counters a second time.
+    captured1514.clear()
+    m1514.last_stats = time.time() - monitor.STATS_EVERY_S - 1
+    m1514.tick()
+    assert not [f for e, f in captured1514 if e == "conn.stats"], captured1514
+    # Zero-count exits remain silent.
+    m1514.procs = {1515: ("opencode", 1, "opencode")}
+    m1514.stats = {1515: [0, 0]}
+    captured1514.clear()
+    m1514.tick()
+    assert not [f for e, f in captured1514 if e == "conn.stats"], captured1514
+    assert m1514.stats == {}, m1514.stats
+    # The existing interval-based flush still reports live pids normally.
+    monitor.processes = lambda: {1516: ("opencode", 1, "opencode")}
+    monitor.sockets = lambda pids: {1516: (set(), set())}
+    m_live1514 = monitor.Monitor()
+    m_live1514.first = False
+    m_live1514.last_stats = time.time() - monitor.STATS_EVERY_S - 1
+    m_live1514.last_rotate = time.time()
+    m_live1514.procs = {1516: ("opencode", 1, "opencode")}
+    m_live1514.stats = {1516: [2, 3]}
+    captured1514.clear()
+    m_live1514.tick()
+    live_stats1514 = [f for e, f in captured1514 if e == "conn.stats"]
+    assert len(live_stats1514) == 1 and live_stats1514[0]["opened"] == 2 \
+        and live_stats1514[0]["closed"] == 3, live_stats1514
     EOF
   ''
