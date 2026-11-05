@@ -201,7 +201,10 @@ function listBackups(dir: string): BackupEntry[] {
   for (const sub of subs) {
     const subFull = path.join(dir, sub);
     try {
-      if (!fs.statSync(subFull).isDirectory()) {
+      // lstat, not stat (#1524): a symlinked day-directory must not be
+      // descended into — its target lives outside the backup dir, and
+      // the cleanup passes unlink whatever listBackups returns.
+      if (!fs.lstatSync(subFull).isDirectory()) {
         continue;
       }
     } catch {
@@ -216,7 +219,9 @@ function listBackups(dir: string): BackupEntry[] {
     for (const name of files) {
       const full = path.join(subFull, name);
       try {
-        const st = fs.statSync(full);
+        // lstat, not stat (#1524): a symlinked file is not a backup
+        // entry; returning it would let cleanup delete its target.
+        const st = fs.lstatSync(full);
         if (st.isFile()) {
           results.push({ name, full, mtimeMs: st.mtimeMs, size: st.size });
         }
