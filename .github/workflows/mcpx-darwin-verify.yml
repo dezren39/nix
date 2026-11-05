@@ -1,0 +1,34 @@
+name: mcpx-darwin-verify (one-off, issue 471)
+# One-off aarch64-darwin build verification for dezren39/nix#471.
+# Throwaway branch only: this workflow must not merge. Delete the branch
+# after the run (see the issue's agent note).
+on:
+  workflow_dispatch:
+  push:
+    branches: [queue/8082-471-darwin-mcpx-verify]
+permissions:
+  contents: read
+jobs:
+  build:
+    name: aarch64-darwin mcpx
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - name: Build aarch64-darwin mcpx
+        run: |
+          set -euo pipefail
+          echo "runner: $(uname -s) $(uname -m)"
+          nix build .#packages.aarch64-darwin.mcpx --print-build-logs --print-out-paths | tee "$RUNNER_TEMP/out"
+          out="$(tail -n1 "$RUNNER_TEMP/out")"
+          echo "out: $out"
+          echo "--- $out/bin ---"
+          ls -l "$out/bin"
+      - name: Run the built binary
+        run: |
+          set -euo pipefail
+          out="$(tail -n1 "$RUNNER_TEMP/out")"
+          "$out/bin/mcpx" --help | head -40
+          "$out/bin/mcpx" version || true
+          nix eval --raw .#packages.aarch64-darwin.mcpx.version
