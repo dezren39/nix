@@ -221,6 +221,26 @@ def load_persisted_jobs():
             meta = json.loads((d / "meta.json").read_text())
         except (OSError, ValueError):
             continue
+        # Issue #1513: validate timestamps on the raw meta before any
+        # consumer (float() conversion, running->interrupted, summary,
+        # reaper) touches them. Valid is missing/None (defaults apply)
+        # or an int/float that is not a bool (bool is an int subclass,
+        # so float(True) == 1.0 would otherwise slip through). Strings
+        # (even numeric ones), lists, objects and bools are malformed:
+        # skip the whole entry like an unreadable/invalid-JSON dir,
+        # naming the dir on stderr, and leave the spool on disk.
+        def _bad_ts(value):
+            return value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float)))
+
+        _bad_fields = [name for name in ("started_at", "ended_at")
+                       if _bad_ts(meta.get(name))]
+        if _bad_fields:
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  f"bad {'/'.join(_bad_fields)} in meta.json",
+                  file=sys.stderr, flush=True)
+            continue
         job_id = meta.get("id") or d.name
         state = meta.get("state") or "done"
         exit_code = meta.get("exit")

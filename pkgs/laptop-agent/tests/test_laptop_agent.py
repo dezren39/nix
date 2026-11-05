@@ -4,7 +4,9 @@
 Run with: python3 -m unittest discover -s pkgs/laptop-agent/tests
 Wired as the flake check `laptop-agent-tests` (Linux).
 """
+import contextlib
 import http.client
+import io
 import json
 import os
 import socket
@@ -423,6 +425,140 @@ class MalformedRequestTest(unittest.TestCase):
             "GET", f"/jobs/{job_id}?out_off=abc")
         self._assert_400_then_health(
             "GET", f"/jobs/{job_id}?err_off=-1")
+
+
+class PersistedJobTimestampTest(unittest.TestCase):
+    """Issue #1513: non-numeric persisted timestamps must not crash
+    startup or poison /jobs reads.
+
+    Oracle: a spool dir whose meta.json timestamps are malformed
+    (string incl. numeric string, bool, list, object) is skipped
+    whole -- exactly one stderr line naming its dir, nothing added
+    to JOBS, spool left on disk -- while missing/None keep today's
+    defaults and well-formed jobs restore exactly as before,
+    including the running->interrupted conversion.
+    """
+
+    def _import_agent(self):
+        with tempfile.NamedTemporaryFile("w", suffix="-token",
+                                         delete=False) as f:
+            f.write("persisted-ts-test-token\n")
+            token_path = f.name
+        os.environ.setdefault("LAPTOP_AGENT_TOKEN_FILE", token_path)
+        sys.path.insert(0, str(AGENT.parent))
+        import laptop_agent as la
+        return la
+
+    def _write_job(self, state_dir, job_id, **meta):
+        spool = Path(state_dir) / "jobs" / job_id
+        spool.mkdir(parents=True)
+        meta.setdefault("id", job_id)
+        meta.setdefault("cwd", "/")
+        meta.setdefault("cmd", "test")
+        meta.setdefault("exit", 0)
+        meta.setdefault("state", "done")
+        (spool / "meta.json").write_text(json.dumps(meta))
+        (spool / "stdout").write_bytes(b"")
+        (spool / "stderr").write_bytes(b"")
+        return spool
+
+    def _load(self, la, state_dir):
+        la.JOBS.clear()
+        err = io.StringIO()
+        with patch.object(la, "STATE_DIR", Path(state_dir)):
+            with contextlib.redirect_stderr(err):
+                la.load_persisted_jobs()
+        return err.getvalue()
+
+    def tearDown(self):
+        la_mod = sys.modules.get("laptop_agent")
+        if la_mod is not None:
+            la_mod.JOBS.clear()
+
+    def test_started_at_string_skipped_healthy_kept_stderr_names_dir(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            bad = self._write_job(state_dir, "bad-started",
+                                  started_at="not-a-number",
+                                  ended_at=200.0)
+            self._write_job(state_dir, "healthy",
+                            started_at=100.0, ended_at=150.0)
+            stderr = self._load(la, state_dir)
+            self.assertNotIn("bad-started", la.JOBS)
+            self.assertIn("healthy", la.JOBS)
+            self.assertTrue(bad.exists())
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, stderr)
+            self.assertIn(str(bad), lines[0])
+            self.assertIn("started_at", lines[0])
+
+    def test_ended_at_string_skipped_summary_and_reaper_succeed(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            bad = self._write_job(state_dir, "bad-ended",
+                                  started_at=100.0, ended_at="never")
+            self._write_job(state_dir, "healthy",
+                            started_at=100.0, ended_at=150.0)
+            stderr = self._load(la, state_dir)
+            self.assertNotIn("bad-ended", la.JOBS)
+            self.assertIn("healthy", la.JOBS)
+            self.assertTrue(bad.exists())
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, stderr)
+            self.assertIn(str(bad), lines[0])
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                summaries = [la.job_summary(j)
+                             for j in list(la.JOBS.values())]
+                la.reap_old_jobs()
+            self.assertEqual([s["job_id"] for s in summaries],
+                             ["healthy"])
+
+    def test_other_malformed_shapes_are_skipped(self):
+        la = self._import_agent()
+        cases = [
+            ("bool-started", {"started_at": True, "ended_at": 150.0}),
+            ("list-ended", {"started_at": 100.0, "ended_at": [150.0]}),
+            ("numeric-string", {"started_at": "123", "ended_at": 150.0}),
+            ("object-started", {"started_at": {"t": 1},
+                                "ended_at": 150.0}),
+        ]
+        for job_id, stamps in cases:
+            with self.subTest(job_id=job_id):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    self._write_job(state_dir, job_id, **stamps)
+                    self._write_job(state_dir, "healthy",
+                                    started_at=100.0, ended_at=150.0)
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn(job_id, la.JOBS)
+                    self.assertIn("healthy", la.JOBS)
+                    lines = [ln for ln in stderr.splitlines()
+                             if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(job_id, lines[0])
+
+    def test_well_formed_restore_unchanged_and_running_interrupted(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            self._write_job(state_dir, "done-job",
+                            started_at=100.0, ended_at=150.5)
+            self._write_job(state_dir, "running-job", state="running",
+                            exit=None, started_at=100.0, ended_at=None)
+            self._write_job(state_dir, "no-stamps")
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            done = la.JOBS["done-job"]
+            self.assertEqual(done["started_at"], 100.0)
+            self.assertEqual(done["ended_at"], 150.5)
+            self.assertEqual(done["state"], "done")
+            self.assertFalse(done["interrupted"])
+            running = la.JOBS["running-job"]
+            self.assertEqual(running["state"], "done")
+            self.assertTrue(running["interrupted"])
+            self.assertIsInstance(running["ended_at"], float)
+            self.assertEqual(running["started_at"], 100.0)
+            bare = la.JOBS["no-stamps"]
+            self.assertEqual(bare["started_at"], 0.0)
+            self.assertIsNone(bare["ended_at"])
 
 
 if __name__ == "__main__":
