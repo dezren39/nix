@@ -138,12 +138,18 @@ def terminate_group(pid: int):
 
 def run_one(spec, timeout_s):
     cwd = spec.get("cwd") or str(Path.home())
+    if not isinstance(spec, dict):
+        raise ValueError("command spec must be an object")
+    if spec.get("env") is not None and not isinstance(spec.get("env"), dict):
+        raise ValueError("command env must be an object")
     env = dict(os.environ)
     env.update(spec.get("env") or {})
     if spec.get("shell") is not None:
         argv = [BASH, "-lc", spec["shell"]]
-    else:
+    elif isinstance(spec.get("argv"), (list, tuple)) and spec["argv"]:
         argv = list(spec["argv"])
+    else:
+        raise ValueError("command spec requires 'argv' or 'shell'")
     t0 = time.time()
     tmpdir = Path(tempfile.mkdtemp(prefix="exec-", dir=str(STATE_DIR / "exec")))
     out_path, err_path = tmpdir / "stdout", tmpdir / "stderr"
@@ -327,17 +333,25 @@ def reap_old_jobs():
         shutil.rmtree(job_dir(j["id"]), ignore_errors=True)
 
 
+class FramingError(ValueError):
+    """Invalid request framing: the next request boundary is unknown,
+    so the connection must be closed after the 400 response."""
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):  # quiet; journal gets tracebacks only
         pass
 
-    def _send(self, code, obj):
+    def _send(self, code, obj, close=False):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if close:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
 
@@ -348,11 +362,38 @@ class Handler(BaseHTTPRequestHandler):
         return hmac.compare_digest(given, TOKEN)
 
     def _body(self):
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            raise FramingError("invalid Content-Length header")
+        if n < 0:
+            raise FramingError("invalid Content-Length header")
         raw = self.rfile.read(n) if n else b"{}"
-        return json.loads(raw or b"{}")
+        try:
+            body = json.loads(raw or b"{}")
+        except ValueError:
+            raise ValueError("request body is not valid JSON")
+        if not isinstance(body, dict):
+            raise ValueError("request body must be a JSON object")
+        return body
+
+    def _send_bad_request(self, e):
+        try:
+            self._send(400, {"error": str(e) or "bad request"},
+                       close=isinstance(e, FramingError))
+        except Exception:
+            pass
 
     def do_GET(self):
+        try:
+            self._do_GET()
+        except (ValueError, KeyError, TypeError, AttributeError,
+                IndexError) as e:
+            self._send_bad_request(e)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _do_GET(self):
         if not self._authed():
             return self._send(401, {"error": "bad token"})
         path = urlparse(self.path)
@@ -373,22 +414,51 @@ class Handler(BaseHTTPRequestHandler):
                 job = JOBS.get(job_id)
             if job is None:
                 return self._send(404, {"error": "no such job"})
-            return self._send(200, job_public(
-                job, int(q.get("out_off", [0])[0]),
-                int(q.get("err_off", [0])[0])))
+            try:
+                out_off = int(q.get("out_off", [0])[0])
+                err_off = int(q.get("err_off", [0])[0])
+            except (TypeError, ValueError):
+                raise ValueError("out_off/err_off must be integers")
+            if out_off < 0 or err_off < 0:
+                raise ValueError("out_off/err_off must be >= 0")
+            return self._send(200, job_public(job, out_off, err_off))
         return self._send(404, {"error": "no such route"})
 
     def do_POST(self):
+        try:
+            self._do_POST()
+        except (ValueError, KeyError, TypeError, AttributeError,
+                IndexError) as e:
+            self._send_bad_request(e)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _do_POST(self):
         if not self._authed():
             return self._send(401, {"error": "bad token"})
         path = urlparse(self.path).path
         if path == "/exec":
             body = self._body()
-            timeout = min(int(body.get("timeout_s", EXEC_TIMEOUT_DEFAULT)),
-                          EXEC_TIMEOUT_MAX)
+            try:
+                timeout = int(body.get("timeout_s", EXEC_TIMEOUT_DEFAULT))
+            except (TypeError, ValueError):
+                return self._send(400,
+                                  {"error": "timeout_s must be an integer"})
+            timeout = max(1, min(timeout, EXEC_TIMEOUT_MAX))
             cmds = body.get("cmds") or []
             if not isinstance(cmds, list) or not cmds:
                 return self._send(400, {"error": "cmds required"})
+            for c in cmds:
+                if not isinstance(c, dict) or (
+                        c.get("shell") is None and not (
+                            isinstance(c.get("argv"), (list, tuple))
+                            and c["argv"])):
+                    return self._send(
+                        400, {"error": "each cmd requires 'argv' or 'shell'"})
+                if (c.get("env") is not None
+                        and not isinstance(c.get("env"), dict)):
+                    return self._send(
+                        400, {"error": "cmd env must be an object"})
             if not SEMA.acquire(timeout=5):
                 return self._send(503, {"error": "busy"})
             try:
@@ -399,12 +469,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/jobs":
             body = self._body()
             cwd = body.get("cwd") or str(Path.home())
+            if body.get("env") is not None and not isinstance(
+                    body.get("env"), dict):
+                return self._send(400, {"error": "env must be an object"})
             if body.get("shell") is not None:
                 argv = [BASH, "-lc", body["shell"]]
                 cmd_repr = body["shell"]
-            else:
+            elif isinstance(body.get("argv"), (list, tuple)) and body["argv"]:
                 argv = list(body["argv"])
-                cmd_repr = " ".join(argv)
+                cmd_repr = " ".join(str(a) for a in argv)
+            else:
+                return self._send(400, {"error": "argv or shell required"})
             job_id = secrets.token_hex(6)
             d = job_dir(job_id)
             d.mkdir(parents=True, exist_ok=True)
