@@ -37,8 +37,32 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+
+def _parse_startup_int(name, raw, requirement, minimum, maximum=None):
+    """Validate an integer startup env var, or exit 3 naming it (#1510).
+
+    A bare int() at import crashed with a raw ValueError traceback for
+    typos, and out-of-range values either tracebacked later at bind
+    (PORT=99999), silently bound an ephemeral port (PORT=0), or started
+    a healthy-looking daemon that could never run work (SLOTS=0).
+    Fail at startup instead, in the read_token house style.
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = None
+    if (value is None or value < minimum
+            or (maximum is not None and value > maximum)):
+        print(f"laptop-agent: invalid {name}={raw!r}: {requirement}",
+              file=sys.stderr, flush=True)
+        sys.exit(3)
+    return value
+
+
 BIND_HOST = os.environ.get("LAPTOP_AGENT_HOST", "100.99.113.103")
-BIND_PORT = int(os.environ.get("LAPTOP_AGENT_PORT", "4799"))
+BIND_PORT = _parse_startup_int(
+    "LAPTOP_AGENT_PORT", os.environ.get("LAPTOP_AGENT_PORT", "4799"),
+    "must be an integer 1-65535", 1, 65535)
 # Absolute interpreter for `shell` requests: NixOS has no /bin/bash, and
 # the package wrapper sets this to the store path.
 BASH = os.environ.get("LAPTOP_AGENT_BASH", "/bin/bash")
@@ -51,7 +75,9 @@ EXEC_TIMEOUT_DEFAULT = 120
 EXEC_TIMEOUT_MAX = 600
 JOB_TTL_S = 24 * 3600
 KILL_GRACE_S = 5
-SEMA = threading.Semaphore(int(os.environ.get("LAPTOP_AGENT_SLOTS", "32")))
+SEMA = threading.Semaphore(_parse_startup_int(
+    "LAPTOP_AGENT_SLOTS", os.environ.get("LAPTOP_AGENT_SLOTS", "32"),
+    "must be an integer >= 1", 1))
 STARTED = time.time()
 
 JOBS = {}                    # job_id -> dict
