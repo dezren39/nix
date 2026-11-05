@@ -437,7 +437,8 @@ class MalformedRequestTest(unittest.TestCase):
     def test_exec_negative_timeout_is_clamped(self):
         status, body = self._call(
             "POST", "/exec",
-            body={"cmds": [{"argv": [sys.executable, "-c", "pass"]}],
+            body={"cmds": [{"cwd": os.getcwd(),
+                             "argv": [sys.executable, "-c", "pass"]}],
                   "timeout_s": -5})
         self.assertEqual(status, 200, body)
         self.assertEqual(body["results"][0]["exit"], 0)
@@ -457,7 +458,8 @@ class MalformedRequestTest(unittest.TestCase):
     def test_job_query_offsets_malformed(self):
         status, body = self._call(
             "POST", "/jobs",
-            body={"argv": [sys.executable, "-c", "pass"]})
+            body={"cwd": os.getcwd(),
+                  "argv": [sys.executable, "-c", "pass"]})
         self.assertEqual(status, 200, body)
         job_id = body["job_id"]
         self._assert_400_then_health(
@@ -576,6 +578,30 @@ class PersistedJobTimestampTest(unittest.TestCase):
                     la.reap_old_jobs()
             self.assertNotIn("done-null-ended", la.JOBS)
             self.assertFalse(spool.exists())
+    def test_non_object_meta_skipped_healthy_kept(self):
+        # Issue #1522: meta.json that is valid JSON but not an object
+        # gets the same skip contract as malformed timestamps.
+        la = self._import_agent()
+        shapes = [("[1, 2, 3]", "list-meta"), ('"hello"', "string-meta"),
+                  ("42", "number-meta"), ("true", "bool-meta"),
+                  ("null", "null-meta")]
+        for raw, job_id in shapes:
+            with self.subTest(shape=raw):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    spool = Path(state_dir) / "jobs" / job_id
+                    spool.mkdir(parents=True)
+                    (spool / "meta.json").write_text(raw)
+                    (spool / "stdout").write_bytes(b"")
+                    (spool / "stderr").write_bytes(b"")
+                    self._write_job(state_dir, "healthy",
+                                    started_at=100.0, ended_at=150.0)
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn(job_id, la.JOBS)
+                    self.assertIn("healthy", la.JOBS)
+                    self.assertTrue(spool.exists())
+                    lines = [ln for ln in stderr.splitlines() if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(spool), lines[0])
 
     def test_other_malformed_shapes_are_skipped(self):
         la = self._import_agent()

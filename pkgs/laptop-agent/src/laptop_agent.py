@@ -248,6 +248,15 @@ def load_persisted_jobs():
             meta = json.loads((d / "meta.json").read_text())
         except (OSError, ValueError):
             continue
+        # Issue #1522: valid JSON that is not an object (list, string,
+        # number, bool, null) crashed startup with AttributeError on the
+        # first meta.get below. Apply the #1513 skip shape to the
+        # container shape: skip whole, one stderr line, spool untouched.
+        if not isinstance(meta, dict):
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  "meta.json is not a JSON object",
+                  file=sys.stderr, flush=True)
+            continue
         # Issue #1513: validate timestamps on the raw meta before any
         # consumer (float() conversion, running->interrupted, summary,
         # reaper) touches them. Valid is missing/None (defaults apply)

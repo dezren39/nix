@@ -201,7 +201,10 @@ function listBackups(dir: string): BackupEntry[] {
   for (const sub of subs) {
     const subFull = path.join(dir, sub);
     try {
-      if (!fs.statSync(subFull).isDirectory()) {
+      // lstat, not stat (#1524): a symlinked day-directory must not be
+      // descended into — its target lives outside the backup dir, and
+      // the cleanup passes unlink whatever listBackups returns.
+      if (!fs.lstatSync(subFull).isDirectory()) {
         continue;
       }
     } catch {
@@ -216,7 +219,9 @@ function listBackups(dir: string): BackupEntry[] {
     for (const name of files) {
       const full = path.join(subFull, name);
       try {
-        const st = fs.statSync(full);
+        // lstat, not stat (#1524): a symlinked file is not a backup
+        // entry; returning it would let cleanup delete its target.
+        const st = fs.lstatSync(full);
         if (st.isFile()) {
           results.push({ name, full, mtimeMs: st.mtimeMs, size: st.size });
         }
@@ -283,7 +288,12 @@ function cleanupSize(cfg: Config): void {
   if (total <= maxB) {
     return;
   }
-  for (const e of entries) {
+  // Iterate all but the newest entry (#1530): the arithmetic floor
+  // alone does not protect the newest backup, because a failed unlink
+  // (#1014 accounting) leaves the budget unchanged and the loop walks
+  // one entry further — far enough to reach and delete the newest.
+  // cleanupAge has always excluded it structurally via slice(0, -1).
+  for (const e of entries.slice(0, -1)) {
     if (total <= targetB) {
       break;
     }
@@ -317,7 +327,11 @@ function cleanupCount(cfg: Config): void {
   // backup, newest included. The newest backup always survives.
   const target = Math.max(cfg.maxFileCount - cfg.rolloutFileCount, 1);
   let remaining = entries.length;
-  for (const e of entries) {
+  // All but the newest entry, as in cleanupSize (#1530): with #1014
+  // accounting a failed unlink does not decrement `remaining`, so an
+  // unguarded loop that started over target walks into the newest
+  // entry and deletes the backup the floor exists to protect.
+  for (const e of entries.slice(0, -1)) {
     if (remaining <= target) {
       break;
     }
