@@ -77,6 +77,13 @@ EXEC_TIMEOUT_MAX = 600
 JOB_TTL_S = 24 * 3600
 REAP_INTERVAL_S = 3600       # background reaper cadence (#1504)
 KILL_GRACE_S = 5
+# Slot semantics (#1545): LAPTOP_AGENT_SLOTS is ONE shared pool for all
+# work the daemon runs, not a per-route cap. POST /exec acquires a slot
+# for the duration of the call; POST /jobs acquires a slot before
+# spawning and holds it for the job's whole lifetime (the watch thread
+# releases it when the process exits, including after a kill). Both
+# routes wait up to 5s for a slot and then return 503 {"error": "busy"}:
+# submissions are never queued indefinitely and never spawn past the cap.
 SEMA = threading.Semaphore(_parse_startup_int(
     "LAPTOP_AGENT_SLOTS", os.environ.get("LAPTOP_AGENT_SLOTS", "32"),
     "must be an integer >= 1", 1))
@@ -560,6 +567,8 @@ class Handler(BaseHTTPRequestHandler):
                 cmd_repr = " ".join(str(a) for a in argv)
             else:
                 return self._send(400, {"error": "argv or shell required"})
+            if not SEMA.acquire(timeout=5):
+                return self._send(503, {"error": "busy"})
             job_id = secrets.token_hex(6)
             d = job_dir(job_id)
             d.mkdir(parents=True, exist_ok=True)
@@ -572,6 +581,7 @@ class Handler(BaseHTTPRequestHandler):
                                         stdout=out_f, stderr=err_f,
                                         start_new_session=True)
             except Exception as e:
+                SEMA.release()
                 for f in (out_f, err_f):
                     f.close()
                 shutil.rmtree(d, ignore_errors=True)
@@ -585,7 +595,10 @@ class Handler(BaseHTTPRequestHandler):
                 JOBS[job_id] = job
 
             def watch(j=job):
-                j["proc"].wait()
+                try:
+                    j["proc"].wait()
+                finally:
+                    SEMA.release()
                 j["ended_at"] = time.time()
                 for f in j["_files"]:
                     try:
