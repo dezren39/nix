@@ -226,6 +226,57 @@ function removeFixture(dir, oldDay) {
   console.log("pass: cleanupSize with rollout > max leaves the newest backup (#1211)");
 }
 
+// 14. Failed unlink must not cost the newest backup, cleanupCount
+//     (#1530): four 16-byte backups, the oldest in a read-only day dir
+//     so its unlink fails. maxFileCount 2, rollout 1 -> target 1. The
+//     #1014 accounting (a failed unlink is not a deletion) makes an
+//     unguarded loop walk one entry further per failure and delete
+//     f03, the newest — the pass ended at target with only the
+//     undeletable oldest left. The structural newest exclusion
+//     (slice(0, -1), as cleanupAge has always had) leaves f00 (failed
+//     unlink) and f03 (newest) standing.
+function fixtureUndeletableOldestFlat() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "buffer-backup-test-"));
+  const base = Date.UTC(2026, 0, 1) / 1000;
+  const oldDay = path.join(dir, "2026-01-01");
+  fs.mkdirSync(oldDay);
+  const f0 = path.join(oldDay, "f00.txt");
+  fs.writeFileSync(f0, "x".repeat(100));
+  fs.utimesSync(f0, base, base);
+  const day = path.join(dir, "2026-01-02");
+  fs.mkdirSync(day);
+  for (let i = 1; i < 4; i++) {
+    const full = path.join(day, `f0${i}.txt`);
+    fs.writeFileSync(full, "x".repeat(100));
+    fs.utimesSync(full, base + i * 10, base + i * 10);
+  }
+  fs.chmodSync(oldDay, 0o555);
+  return { dir, oldDay };
+}
+
+{
+  const { dir, oldDay } = fixtureUndeletableOldestFlat();
+  cleanupCount({ backupDir: dir, maxFileCount: 2, rolloutFileCount: 1 });
+  assert.deepStrictEqual(remainingNames(dir), ["f00.txt", "f03.txt"]);
+  removeFixture(dir, oldDay);
+  console.log("pass: cleanupCount failed unlink does not delete the newest backup (#1530)");
+}
+
+// 15. Failed unlink must not cost the newest backup, cleanupSize
+//     (#1530): same fixture (4x100B) with a 250-byte cap and 100-byte
+//     rollout -> target 150B. The unguarded loop deleted f01, f02 and
+//     then the newest f03 to get under target; the guarded pass stops
+//     at the slice end with f00 (failed unlink) and f03 (newest)
+//     standing, still over target — over target with the newest
+//     intact is the correct outcome.
+{
+  const { dir, oldDay } = fixtureUndeletableOldestFlat();
+  cleanupSize({ backupDir: dir, maxTotalMb: 250 / (1024 * 1024), rolloutMb: 100 / (1024 * 1024) });
+  assert.deepStrictEqual(remainingNames(dir), ["f00.txt", "f03.txt"]);
+  removeFixture(dir, oldDay);
+  console.log("pass: cleanupSize failed unlink does not delete the newest backup (#1530)");
+}
+
 // 11. All backups expired, cleanupAge (#1375): the fixture mtimes are
 //     2026-01-01, so with maxAgeSec = 3600 every file is past the
 //     cutoff. The unguarded pass deleted all of them; the #1211-style
