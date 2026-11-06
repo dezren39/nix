@@ -500,7 +500,19 @@ def reap_old_jobs():
             JOBS.pop(j["id"], None)
     for j in dead:
         # Output is uncapped, so retention must remove the spool too.
-        shutil.rmtree(job_dir(j["id"]), ignore_errors=True)
+        # job_dir() raises ValueError for an unsafe spool (#1555) and
+        # ignore_errors covers only rmtree's own errors, so guard each
+        # job: one unsafe spool must not abort the whole reap (#1560).
+        # The dead jobs are already popped from JOBS, so a spool that
+        # cannot be removed is log-and-drop -- one stderr line naming
+        # the job -- and the reap continues with the remaining jobs;
+        # without the line the leak would be silent and permanent,
+        # because no later reap pass still knows these jobs.
+        try:
+            shutil.rmtree(job_dir(j["id"]), ignore_errors=True)
+        except (OSError, RuntimeError, ValueError) as e:
+            print(f"laptop-agent: reap: cannot remove spool for job "
+                  f"{j['id']}: {e}", file=sys.stderr, flush=True)
 
 
 class FramingError(ValueError):
