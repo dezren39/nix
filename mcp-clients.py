@@ -58,11 +58,19 @@ def write(path, text, what):
     backup = os.path.join(BACKUP_DIR, path.replace("/", "%"))
     if not os.path.exists(backup):
         shutil.copy2(path, backup)
-    tmp = f"{path}.mcp-clients.tmp"
+    # Write through a symlinked path to its target (#1562): a rename
+    # onto the symlink would replace the link itself with a detached
+    # regular file, leaving the real config unchanged while reporting
+    # success (the same shape as adopt's #1557 fix). Resolve the link
+    # chain and temp+rename in the target's directory instead; the link
+    # stays intact. An unresolvable or unwritable target raises here
+    # and is reported through the #906 per-client failure path.
+    dest = os.path.realpath(path) if os.path.islink(path) else path
+    tmp = f"{dest}.mcp-clients.tmp"
     with open(tmp, "w") as fh:
         fh.write(text)
-    shutil.copymode(path, tmp)
-    os.replace(tmp, path)
+    shutil.copymode(dest, tmp)
+    os.replace(tmp, dest)
 
 
 def json_client(path, entry):
