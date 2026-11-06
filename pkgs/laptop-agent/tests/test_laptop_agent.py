@@ -1469,6 +1469,183 @@ class PersistedJobRestoreContractTest(unittest.TestCase):
                 "err_next": 0})
 
 
+class PersistedJobExitCwdCmdTest(unittest.TestCase):
+    """Issue #1568: load_persisted_jobs restored exit/cwd/cmd
+    verbatim -- a malformed meta.json exit was served verbatim as
+    the job's exit code, and _write_meta re-persisted the junk.
+
+    Oracle: the writer (_write_meta) only ever writes exit as an
+    int returncode (negative for signal deaths) or None, and
+    cwd/cmd as strings. A present value of any other shape follows
+    the established skip contract -- skipped whole, exactly one
+    stderr line naming its dir and the field, spool left on disk,
+    healthy siblings unchanged -- while missing/None keep the
+    established defaults (None / home dir / ""). The checks live
+    in the one restore validator as RESTORE_FIELD_TABLE rows, per
+    the #1579 fold-in rule (design #1578 phase 1).
+    """
+
+    def _import_agent(self):
+        with tempfile.NamedTemporaryFile("w", suffix="-token",
+                                         delete=False) as f:
+            f.write("persisted-exit-cwd-cmd-test-token\n")
+            token_path = f.name
+        os.environ.setdefault("LAPTOP_AGENT_TOKEN_FILE", token_path)
+        sys.path.insert(0, str(AGENT.parent))
+        import laptop_agent as la
+        return la
+
+    def _base_meta(self, job_id):
+        return {"id": job_id, "cwd": "/", "cmd": "test",
+                "started_at": 100.0, "ended_at": 150.0, "exit": 0,
+                "state": "done", "interrupted": False}
+
+    def _write_raw(self, state_dir, job_id, meta):
+        spool = Path(state_dir) / "jobs" / job_id
+        spool.mkdir(parents=True)
+        raw = json.dumps(meta)
+        (spool / "meta.json").write_text(raw)
+        (spool / "stdout").write_bytes(b"")
+        (spool / "stderr").write_bytes(b"")
+        return spool, raw
+
+    def _load(self, la, state_dir):
+        la.JOBS.clear()
+        err = io.StringIO()
+        with patch.object(la, "STATE_DIR", Path(state_dir)):
+            with contextlib.redirect_stderr(err):
+                la.load_persisted_jobs()
+        return err.getvalue()
+
+    def tearDown(self):
+        la_mod = sys.modules.get("laptop_agent")
+        if la_mod is not None:
+            la_mod.JOBS.clear()
+
+    def _assert_skipped(self, la, field, value):
+        with tempfile.TemporaryDirectory() as state_dir:
+            meta = self._base_meta("bad-job")
+            meta[field] = value
+            spool, raw = self._write_raw(state_dir, "bad-job", meta)
+            self._write_raw(state_dir, "healthy",
+                            self._base_meta("healthy"))
+            stderr = self._load(la, state_dir)
+            self.assertNotIn("bad-job", la.JOBS)
+            self.assertIn("healthy", la.JOBS)
+            self.assertTrue(spool.exists())
+            self.assertEqual((spool / "meta.json").read_text(), raw)
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, stderr)
+            self.assertIn(str(spool), lines[0])
+            self.assertIn(field, lines[0])
+
+    def test_non_integer_exit_skipped_healthy_kept(self):
+        la = self._import_agent()
+        for value in ["0", [0], {"x": 1}, 0.5, True, False]:
+            with self.subTest(value=repr(value)):
+                self._assert_skipped(la, "exit", value)
+
+    def test_exit_controls_restore_verbatim(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            for job_id, value in [("zero-exit", 0),
+                                  ("negative-exit", -9),
+                                  ("null-exit", None)]:
+                meta = self._base_meta(job_id)
+                meta["exit"] = value
+                self._write_raw(state_dir, job_id, meta)
+            meta = self._base_meta("missing-exit")
+            del meta["exit"]
+            self._write_raw(state_dir, "missing-exit", meta)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            self.assertEqual(la.JOBS["zero-exit"]["exit"], 0)
+            self.assertEqual(la.JOBS["negative-exit"]["exit"], -9)
+            self.assertIsNone(la.JOBS["null-exit"]["exit"])
+            self.assertIsNone(la.JOBS["missing-exit"]["exit"])
+
+    def test_non_string_cwd_skipped_healthy_kept(self):
+        la = self._import_agent()
+        for value in [123, ["x"], {"x": 1}, True]:
+            with self.subTest(value=repr(value)):
+                self._assert_skipped(la, "cwd", value)
+
+    def test_cwd_defaults_and_verbatim_restore(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            for job_id, mode in [("missing-cwd", "missing"),
+                                 ("null-cwd", "null"),
+                                 ("empty-cwd", "empty")]:
+                meta = self._base_meta(job_id)
+                if mode == "missing":
+                    del meta["cwd"]
+                elif mode == "null":
+                    meta["cwd"] = None
+                else:
+                    meta["cwd"] = ""
+                self._write_raw(state_dir, job_id, meta)
+            meta = self._base_meta("real-cwd")
+            meta["cwd"] = "/work/tree"
+            self._write_raw(state_dir, "real-cwd", meta)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            for job_id in ("missing-cwd", "null-cwd", "empty-cwd"):
+                self.assertEqual(la.JOBS[job_id]["cwd"],
+                                 str(Path.home()))
+            self.assertEqual(la.JOBS["real-cwd"]["cwd"], "/work/tree")
+
+    def test_non_string_cmd_skipped_healthy_kept(self):
+        la = self._import_agent()
+        for value in [{"x": 1}, 42, ["ls"], True]:
+            with self.subTest(value=repr(value)):
+                self._assert_skipped(la, "cmd", value)
+
+    def test_cmd_defaults_and_verbatim_restore(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            for job_id, mode in [("missing-cmd", "missing"),
+                                 ("null-cmd", "null"),
+                                 ("empty-cmd", "empty")]:
+                meta = self._base_meta(job_id)
+                if mode == "missing":
+                    del meta["cmd"]
+                elif mode == "null":
+                    meta["cmd"] = None
+                else:
+                    meta["cmd"] = ""
+                self._write_raw(state_dir, job_id, meta)
+            meta = self._base_meta("real-cmd")
+            meta["cmd"] = "ls -la"
+            self._write_raw(state_dir, "real-cmd", meta)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            for job_id in ("missing-cmd", "null-cmd", "empty-cmd"):
+                self.assertEqual(la.JOBS[job_id]["cmd_repr"], "")
+            self.assertEqual(la.JOBS["real-cmd"]["cmd_repr"], "ls -la")
+
+    def test_malformed_exit_summary_public_and_reaper_succeed(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            meta = self._base_meta("bad-exit")
+            meta["exit"] = "0"
+            self._write_raw(state_dir, "bad-exit", meta)
+            self._write_raw(state_dir, "healthy",
+                            self._base_meta("healthy"))
+            stderr = self._load(la, state_dir)
+            self.assertEqual(sorted(la.JOBS), ["healthy"])
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, stderr)
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                summaries = [la.job_summary(j)
+                             for j in list(la.JOBS.values())]
+                publics = [la.job_public(j)
+                           for j in list(la.JOBS.values())]
+                la.reap_old_jobs()
+            self.assertEqual([s["job_id"] for s in summaries],
+                             ["healthy"])
+            self.assertEqual(publics[0]["exit"], 0)
+
+
 class ReaperStartupTest(unittest.TestCase):
     """#1504: past-TTL finished jobs are reaped at startup, with no
     new POST /jobs — the daemon is only ever health-polled here.
