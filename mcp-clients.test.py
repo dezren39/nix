@@ -40,6 +40,12 @@ Covers the two PR #904 fallout bugs:
   rejected before any file is read or written -- usage on stderr naming
   the offending argument, exit 2, seeded files byte-unchanged, no backup.
 
+- #1562: a client config reached through a symlink is enforced in the
+  symlink's target (temp+rename in the target's directory), not by
+  replacing the link with a detached regular file; the link stays a
+  symlink, the pre-change backup is kept, and the target's mode is
+  preserved.
+
 Run: python3 mcp-clients.test.py  (exit 0 = all probes passed)
 """
 
@@ -885,6 +891,60 @@ r = run(home, "--dry-run")
 check("1133 --dry-run exit 0 and previews", r.returncode == 0 and "(dry run)" in r.stdout,
       f"exit={r.returncode} stdout={r.stdout!r} stderr={r.stderr!r}")
 check("1133 --dry-run leaves file byte-unchanged", read(claude_path) == seeded)
+shutil.rmtree(home)
+
+
+# #1562: a symlinked JSON client config (relative link) is enforced in
+# its target -- the target becomes mcpx-only, the link stays a symlink,
+# the one-time backup holds the pre-change content, and the target's
+# mode is preserved.
+home = fresh_home()
+target = seed(home, "link-targets/claude.json", '{"mcpServers": {"other": {"command": "x"}}}')
+os.chmod(target, 0o600)
+original = read(target)
+link_path = os.path.join(home, ".claude.json")
+os.symlink("link-targets/claude.json", link_path)
+r = run(home)
+check("1562 symlinked JSON exit 0", r.returncode == 0, f"exit={r.returncode} stderr={r.stderr}")
+check("1562 symlinked JSON link intact",
+      os.path.islink(link_path) and os.readlink(link_path) == "link-targets/claude.json")
+out = read(target)
+check("1562 symlinked JSON target enforced mcpx-only", '"mcpx"' in out and '"other"' not in out, out)
+check("1562 symlinked JSON read through link matches target", read(link_path) == out)
+backup = os.path.join(home, ".local/state/mcp-clients/backup", link_path.replace("/", "%"))
+check("1562 symlinked JSON backup holds pre-change content",
+      os.path.exists(backup) and read(backup) == original)
+check("1562 symlinked JSON target mode preserved", (os.stat(target).st_mode & 0o777) == 0o600,
+      oct(os.stat(target).st_mode & 0o777))
+r2 = run(home)
+check("1562 symlinked JSON second run no-op",
+      r2.returncode == 0 and read(target) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #1562: a symlinked Codex config.toml (absolute link) is enforced in
+# its target with the link intact.
+home = fresh_home()
+target = seed(home, "link-targets/config.toml", '[mcp_servers.other]\ncommand = "x"\n')
+original = read(target)
+link_path = os.path.join(home, ".codex/config.toml")
+os.makedirs(os.path.dirname(link_path), exist_ok=True)
+os.symlink(target, link_path)
+r = run(home)
+check("1562 symlinked Codex exit 0", r.returncode == 0, f"exit={r.returncode} stderr={r.stderr}")
+check("1562 symlinked Codex link intact",
+      os.path.islink(link_path) and os.readlink(link_path) == target)
+out = read(target)
+check("1562 symlinked Codex target enforced mcpx-only",
+      "[mcp_servers.mcpx]" in out and codex_server_names(out) == {"mcpx"}, out)
+check("1562 symlinked Codex read through link matches target", read(link_path) == out)
+backup = os.path.join(home, ".local/state/mcp-clients/backup", link_path.replace("/", "%"))
+check("1562 symlinked Codex backup holds pre-change content",
+      os.path.exists(backup) and read(backup) == original)
+r2 = run(home)
+check("1562 symlinked Codex second run no-op",
+      r2.returncode == 0 and read(target) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
 shutil.rmtree(home)
 
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
