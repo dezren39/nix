@@ -207,6 +207,45 @@ run --path "$VALID" --dry-run --no-follow
 [ "$STATUS" -eq 0 ] || fail "single --no-follow exited $STATUS (want 0)"
 echo "ok: single --follow / --no-follow still accepted"
 
+# ─── --auto with --path/positional is rejected at parse time (#1584) ────
+# Usage documents --auto as "Conflicts with --path", but the parser set
+# MODE unconditionally, so the pair silently resolved by last-win: the
+# --path-then---auto order discarded the named path and scanned the
+# whole machine at exit 0. All three orders must exit 2 naming both
+# flags, before any discovery (probed here under --dry-run, which must
+# fail the same way instead of printing a plan); single-mode controls
+# are unchanged.
+run --path "$VALID" --dry-run --auto
+[ "$STATUS" -eq 2 ] || fail "--path then --auto exited $STATUS (want 2)"
+case "$ERR" in
+  *"git-discover-repos: --auto and --path may not be combined"*) echo "ok: --path then --auto rejected as a conflict" ;;
+  *) fail "--path then --auto did not name both flags on stderr (got: $ERR)" ;;
+esac
+run --auto --path "$VALID" --dry-run
+[ "$STATUS" -eq 2 ] || fail "--auto then --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"git-discover-repos: --auto and --path may not be combined"*) echo "ok: --auto then --path rejected as a conflict" ;;
+  *) fail "--auto then --path did not name both flags on stderr (got: $ERR)" ;;
+esac
+run "$VALID" --auto --dry-run
+[ "$STATUS" -eq 2 ] || fail "positional then --auto exited $STATUS (want 2)"
+case "$ERR" in
+  *"git-discover-repos: --auto and --path may not be combined"*) echo "ok: positional then --auto rejected as a conflict" ;;
+  *) fail "positional then --auto did not name both flags on stderr (got: $ERR)" ;;
+esac
+run --auto "$VALID" --dry-run
+[ "$STATUS" -eq 2 ] || fail "--auto then positional exited $STATUS (want 2)"
+case "$ERR" in
+  *"git-discover-repos: --auto and --path may not be combined"*) echo "ok: --auto then positional rejected as a conflict" ;;
+  *) fail "--auto then positional did not name both flags on stderr (got: $ERR)" ;;
+esac
+run --auto --dry-run
+[ "$STATUS" -eq 0 ] || fail "single --auto exited $STATUS (want 0)"
+case "$OUT" in *"mode:       auto"*) echo "ok: single --auto still accepted" ;; *) fail "single --auto plan changed (got: $OUT)" ;; esac
+run "$VALID" --dry-run
+[ "$STATUS" -eq 0 ] || fail "single positional path exited $STATUS (want 0)"
+echo "ok: single positional path still accepted"
+
 # ─── Enumeration failure under --path is not swallowed (#1325) ─────
 # A find shim fails only for one named scan root, regardless of the
 # privileges the suite runs with (a chmod 000 fixture does not stop
@@ -384,6 +423,11 @@ probe_rejected "git-discover-repos: --follow and --no-follow may not be combined
 probe_rejected "git-discover-repos: --follow and --no-follow may not be combined" --path "$VALID" --dry-run --no-follow --follow
 probe_rejected "may not be combined with" --path "$VALID" --dry-run --repos-only --worktrees-only
 probe_rejected "may not be combined with" --path "$VALID" --dry-run --worktrees-only --repos-only
+probe_rejected "git-discover-repos: --auto and --path may not be combined" --path "$VALID" --auto
+probe_rejected "git-discover-repos: --auto and --path may not be combined" --auto --path "$VALID"
+probe_rejected "git-discover-repos: --auto and --path may not be combined" "$VALID" --auto
+probe_accepted --auto --dry-run
+probe_accepted "$VALID" --dry-run
 for bad in abc 0 2147483648 99999999999999999999999999; do
   probe_rejected "git-discover-repos: --depth must be a positive integer" --path "$VALID" --dry-run --depth "$bad"
 done
