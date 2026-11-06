@@ -16,6 +16,10 @@
 #      ended (#1269): copying one copies exactly that entry, even as last host
 #   K  a template file whose read fails (sed stub exits 1) fails loudly:
 #      non-zero exit naming the template, flake.nix unchanged (#1361)
+#   L  a symlinked --flake is written through to its target (#1557):
+#      entry lands in the target, the symlink stays a symlink, and the
+#      target's mode is preserved
+#   M  a non-644 regular flake keeps its mode after an edit (#1557)
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -232,6 +236,26 @@ out="$(cd "$TMP_ROOT/k" && PATH="$TMP_ROOT/kbin:$PATH" bash "$SCRIPT" ./template
   && ok "K: error names the template file" || fail "K: error does not name the template file: $out"
 cmp -s "$TMP_ROOT/k/flake.before" "$TMP_ROOT/k/flake.nix" \
   && ok "K: flake.nix unchanged" || fail "K: flake.nix changed"
+
+
+# L: a symlinked --flake is written through to its target (#1557)
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+new_flake "$TMP_ROOT/l"
+mv "$TMP_ROOT/l/flake.nix" "$TMP_ROOT/l/real-flake.nix"
+chmod 600 "$TMP_ROOT/l/real-flake.nix"
+ln -s real-flake.nix "$TMP_ROOT/l/flake.nix"
+(cd "$TMP_ROOT/l" && bash "$SCRIPT" --host LINKMAC --flake ./flake.nix >/dev/null) || fail "L: adopt through a symlink exited non-zero"
+[[ -L "$TMP_ROOT/l/flake.nix" ]] && ok "L: flake.nix is still a symlink" || fail "L: flake.nix symlink was replaced"
+[[ "$(readlink "$TMP_ROOT/l/flake.nix")" == "real-flake.nix" ]] && ok "L: symlink target unchanged" || fail "L: symlink target changed"
+grep -q '^      LINKMAC = {$' "$TMP_ROOT/l/real-flake.nix" && ok "L: entry written into the symlink target" || fail "L: entry missing from the symlink target"
+[[ "$(mode_of "$TMP_ROOT/l/real-flake.nix")" == "600" ]] && ok "L: target mode 600 preserved" || fail "L: target mode is $(mode_of "$TMP_ROOT/l/real-flake.nix"), want 600"
+
+# M: a non-644 regular flake keeps its mode after an edit (#1557)
+new_flake "$TMP_ROOT/m"
+chmod 640 "$TMP_ROOT/m/flake.nix"
+(cd "$TMP_ROOT/m" && bash "$SCRIPT" --host MODEMAC >/dev/null) || fail "M: adopt exited non-zero"
+grep -q '^      MODEMAC = {$' "$TMP_ROOT/m/flake.nix" && ok "M: MODEMAC added" || fail "M: MODEMAC missing"
+[[ "$(mode_of "$TMP_ROOT/m/flake.nix")" == "640" ]] && ok "M: mode 640 preserved" || fail "M: mode is $(mode_of "$TMP_ROOT/m/flake.nix"), want 640"
 
 if (( failures )); then
   echo "$failures failure(s)" >&2
