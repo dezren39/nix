@@ -19,6 +19,15 @@
 #   -h / --help (#1319)    -> usage on stdout, exit 0, zero installs
 #   any other argument     -> the argument named on stderr, usage on
 #                            stderr, exit 2, zero installs attempted
+#   list drift (#1547)     -> the extension list exists in three copies
+#                            (the script's install lines, config.toml's
+#                            extensions array, vsc-extensions.txt); all
+#                            three must be identical in set and order,
+#                            and any divergence fails naming the
+#                            differing entries. The script installs
+#                            from its own lines -- it never reads
+#                            config.toml -- so this check is the only
+#                            thing keeping the copies in sync.
 #
 # Run: ./code-install-extensions.test.sh
 set -uo pipefail
@@ -158,6 +167,43 @@ case "$ERR" in
   *) fail "unknown argument: not named with usage on stderr (got: $ERR)" ;;
 esac
 check_no_attempts "unknown argument"
+
+# ─── The three copies of the list agree (#1547) ──────────────────────
+# The script list, in install order.
+SCRIPT_LIST="$TMP_ROOT/script-list.txt"
+awk '{print $2}' "$EXPECTED_LOG" >"$SCRIPT_LIST"
+# config.toml's extensions array: the quoted strings between the
+# `extensions = [` line and its closing `]`.
+CONFIG_LIST="$TMP_ROOT/config-list.txt"
+if [ -f "$SELF_DIR/config.toml" ]; then
+  sed -n '/^extensions = \[/,/^\]/p' "$SELF_DIR/config.toml" \
+    | grep -o '"[^"]*"' | tr -d '"' >"$CONFIG_LIST"
+else
+  : >"$CONFIG_LIST"
+fi
+# vsc-extensions.txt: one id per line.
+TXT_LIST="$TMP_ROOT/txt-list.txt"
+if [ -f "$SELF_DIR/vsc-extensions.txt" ]; then
+  grep -v '^[[:space:]]*$' "$SELF_DIR/vsc-extensions.txt" >"$TXT_LIST"
+else
+  : >"$TXT_LIST"
+fi
+
+check_copy() { # check_copy <label> <list-file>
+  if [ ! -f "$2" ] && [ "$1" != "script" ]; then
+    fail "drift: $1 list file is missing"
+    return
+  fi
+  if diff -u "$SCRIPT_LIST" "$2" >"$TMP_ROOT/drift-$1.diff"; then
+    ok "drift: $1 list matches the script's list ($(wc -l <"$2" | tr -d ' ') entries, set and order)"
+  else
+    fail "drift: $1 list differs from the script's list (lines starting - are only in the script, + only in $1): $(grep '^[+-]' "$TMP_ROOT/drift-$1.diff" | grep -v '^[+-][+-]' | tr '\n' ' ')"
+  fi
+}
+[ -f "$SELF_DIR/config.toml" ] || fail "drift: config.toml is missing next to the test (it is one of the three copies of the list)"
+[ -f "$SELF_DIR/vsc-extensions.txt" ] || fail "drift: vsc-extensions.txt is missing next to the test (it is one of the three copies of the list)"
+check_copy "config.toml" "$CONFIG_LIST"
+check_copy "vsc-extensions.txt" "$TXT_LIST"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures code-install-extensions check(s) failed" >&2

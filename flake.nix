@@ -1182,7 +1182,9 @@ rec {
             ''
               cp ${./code-install-extensions.sh} code-install-extensions.sh
               cp ${./code-install-extensions.test.sh} code-install-extensions.test.sh
-              chmod u+w code-install-extensions.sh code-install-extensions.test.sh
+              cp ${./config.toml} config.toml
+              cp ${./vsc-extensions.txt} vsc-extensions.txt
+              chmod u+w code-install-extensions.sh code-install-extensions.test.sh config.toml vsc-extensions.txt
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./code-install-extensions.test.sh
