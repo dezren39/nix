@@ -1172,6 +1172,45 @@ class PersistedJobTimestampTest(unittest.TestCase):
             self.assertEqual(len(lines), 1, stderr)
             self.assertIn(str(bad), lines[0])
             self.assertIn("interrupted", lines[0])
+    def test_reap_guards_unsafe_spool_and_removes_healthy(self):
+        # Issue #1560: PR #1555 made job_dir() raise ValueError, but
+        # reap_old_jobs() called it unguarded after popping every dead
+        # job from JOBS -- one spool replaced by a symlink aborted the
+        # whole reap and the already-popped healthy spools leaked.
+        # Oracle: reap returns normally, the healthy past-TTL spool is
+        # removed, the unsafe spool is left in place, and exactly one
+        # stderr line names the unsafe job (log-and-drop: the job is
+        # already popped, so without the line the leak is silent).
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            state = Path(state_dir)
+            jobs_root = state / "jobs"
+            jobs_root.mkdir(parents=True)
+            outside = state / "outside"
+            outside.mkdir()
+            (jobs_root / "badjob").symlink_to(outside,
+                                              target_is_directory=True)
+            healthy = jobs_root / "goodjob"
+            healthy.mkdir()
+            (healthy / "stdout").write_bytes(b"hi")
+            now = time.time()
+            for job_id in ("badjob", "goodjob"):
+                la.JOBS[job_id] = {
+                    "id": job_id, "proc": None, "cwd": "/",
+                    "cmd_repr": "test", "started_at": now - 90000,
+                    "ended_at": now - 90000, "exit": 0, "state": "done",
+                    "interrupted": False, "_files": ()}
+            err = io.StringIO()
+            with patch.object(la, "STATE_DIR", state):
+                with contextlib.redirect_stderr(err):
+                    la.reap_old_jobs()
+            self.assertEqual(la.JOBS, {})
+            self.assertFalse(healthy.exists())
+            self.assertTrue((jobs_root / "badjob").is_symlink())
+            self.assertTrue(outside.exists())
+            lines = [ln for ln in err.getvalue().splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, err.getvalue())
+            self.assertIn("badjob", lines[0])
 
 class ReaperStartupTest(unittest.TestCase):
     """#1504: past-TTL finished jobs are reaped at startup, with no
