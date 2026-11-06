@@ -455,6 +455,7 @@ for (const bad of [NaN, Infinity, -Infinity]) {
     "vscode",
     "DEFAULT_BACKUP_DIR",
     `${stripTypes(extractFunction("finiteNumberOr"))}
+     ${stripTypes(extractFunction("nonEmptyStringOr"))}
      ${stripTypes(extractFunction("durationToSeconds"))}
      ${stripTypes(extractFunction("getDuration"))}
      ${stripTypes(extractFunction("getInterval"))}
@@ -490,6 +491,61 @@ for (const bad of [NaN, Infinity, -Infinity]) {
   configValues = { "bufferBackup.ageCleanupIntervalSeconds": NaN };
   assert.strictEqual(getInterval("ageCleanupIntervalSeconds"), 5000, "NaN interval must yield 5000 ms");
   console.log("pass: getConfig/getDuration/getInterval validate numeric settings (#1574)");
+}
+
+
+// 19. Config reading validates the backupDir string setting (#1580):
+//     getConfig is extracted with the same stub vscode as block 18,
+//     feeding hand-edited (schema-violating) backupDir values verbatim,
+//     exactly as VS Code returns them. A truthy non-string used to pass
+//     the `|| DEFAULT` guard unchanged into fs.mkdirSync in activate()
+//     and throw TypeError, so the extension never started and no
+//     backups were taken. Non-strings and "" must fall back to
+//     DEFAULT_BACKUP_DIR; a valid string is used verbatim; and the
+//     resulting backupDir must accept the mkdirSync call activate()
+//     makes first.
+{
+  let configValues = {};
+  const fakeVscode = {
+    workspace: {
+      getConfiguration: (section) => ({
+        get: (key, fallback) => {
+          const full = `${section}.${key}`;
+          return Object.prototype.hasOwnProperty.call(configValues, full)
+            ? configValues[full]
+            : fallback;
+        },
+      }),
+    },
+  };
+  const configFactory = new Function(
+    "vscode",
+    "DEFAULT_BACKUP_DIR",
+    `${stripTypes(extractFunction("finiteNumberOr"))}
+     ${stripTypes(extractFunction("nonEmptyStringOr"))}
+     ${stripTypes(extractFunction("durationToSeconds"))}
+     ${stripTypes(extractFunction("getDuration"))}
+     ${stripTypes(extractFunction("getInterval"))}
+     ${stripTypes(extractFunction("getConfig"))}
+     return { getConfig };`,
+  );
+  const fallbackDir = path.join(os.tmpdir(), "buffer-backup-fallback-dir");
+  const { getConfig } = configFactory(fakeVscode, fallbackDir);
+  for (const bad of [123, true, {}, ["x"]]) {
+    configValues = { "bufferBackup.backupDir": bad };
+    const cfg = getConfig();
+    assert.strictEqual(cfg.backupDir, fallbackDir, `non-string backupDir ${JSON.stringify(bad)} must fall back to the default`);
+    assert.strictEqual(typeof cfg.backupDir, "string", "Config.backupDir must always be a string");
+    fs.mkdirSync(cfg.backupDir, { recursive: true });
+  }
+  configValues = { "bufferBackup.backupDir": "" };
+  assert.strictEqual(getConfig().backupDir, fallbackDir, "empty-string backupDir must fall back to the default");
+  configValues = { "bufferBackup.backupDir": "/tmp/ok-dir" };
+  assert.strictEqual(getConfig().backupDir, "/tmp/ok-dir", "a valid string backupDir is used verbatim");
+  configValues = {};
+  assert.strictEqual(getConfig().backupDir, fallbackDir, "an unset backupDir falls back to the default");
+  fs.rmSync(fallbackDir, { recursive: true, force: true });
+  console.log("pass: getConfig validates the backupDir string setting (#1580)");
 }
 
 console.log("cleanup-count.test.mjs: all assertions passed");

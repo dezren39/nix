@@ -140,6 +140,17 @@ function finiteNumberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+// Same validate-where-read rule for the one string setting (#1580):
+// backupDir's old `|| DEFAULT` guard caught only falsy values, so a
+// truthy non-string (123, true, {}, ["x"]) reached fs.mkdirSync in
+// activate() and threw TypeError -- the extension never started and
+// no backups were taken. Anything that is not a non-empty string
+// falls back to the documented default, so Config.backupDir is
+// always a string.
+function nonEmptyStringOr(value: unknown, fallback: string): string {
+  return typeof value === "string" && value !== "" ? value : fallback;
+}
+
 function getDuration(section: string): number {
   const c = vscode.workspace.getConfiguration(section);
   return durationToSeconds({
@@ -177,7 +188,7 @@ interface Config {
 function getConfig(): Config {
   const c = vscode.workspace.getConfiguration("bufferBackup");
   return {
-    backupDir: c.get("backupDir", "") || DEFAULT_BACKUP_DIR,
+    backupDir: nonEmptyStringOr(c.get("backupDir", ""), DEFAULT_BACKUP_DIR),
     maxAgeSec: getDuration("bufferBackup.maxAge"),
     maxTotalMb: finiteNumberOr(c.get("maxTotalMb", 0), 0),
     rolloutMb: finiteNumberOr(c.get("rolloutMb", 0), 0),
