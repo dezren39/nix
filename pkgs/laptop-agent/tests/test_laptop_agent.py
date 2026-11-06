@@ -1212,6 +1212,263 @@ class PersistedJobTimestampTest(unittest.TestCase):
             self.assertEqual(len(lines), 1, err.getvalue())
             self.assertIn("badjob", lines[0])
 
+class PersistedJobRestoreContractTest(unittest.TestCase):
+    """Issue #1579 (design #1578 phase 1): the contract probe matrix
+    for the one restore validator, generated from the field table.
+
+    Oracle: the writer (_write_meta). Every guarded field x {wrong
+    type, non-finite where numeric, bool-as-number, shape attack
+    where applicable, missing, null, the writer's own well-formed
+    value}: a present-but-malformed value skips the whole entry --
+    exactly one stderr line naming the directory and the field,
+    the spool byte-identical, a healthy sibling restored -- while
+    missing/null takes the table's named default and a well-formed
+    value restores verbatim. Plus both transition rows and one
+    _write_meta -> reload round-trip asserting the served job is
+    identical. The per-incident tests in PersistedJobTimestampTest
+    above are the regression oracle; their assertions are
+    unmodified -- this class only adds coverage.
+    """
+
+    def _import_agent(self):
+        with tempfile.NamedTemporaryFile("w", suffix="-token",
+                                         delete=False) as f:
+            f.write("restore-contract-test-token\n")
+            token_path = f.name
+        os.environ.setdefault("LAPTOP_AGENT_TOKEN_FILE", token_path)
+        sys.path.insert(0, str(AGENT.parent))
+        import laptop_agent as la
+        return la
+
+    def _base_meta(self, job_id):
+        return {"id": job_id, "cwd": "/", "cmd": "test",
+                "started_at": 100.0, "ended_at": 150.0, "exit": 0,
+                "state": "done", "interrupted": False}
+
+    def _write_raw(self, state_dir, job_id, meta):
+        spool = Path(state_dir) / "jobs" / job_id
+        spool.mkdir(parents=True)
+        raw = json.dumps(meta)
+        (spool / "meta.json").write_text(raw)
+        (spool / "stdout").write_bytes(b"")
+        (spool / "stderr").write_bytes(b"")
+        return spool, raw
+
+    def _load(self, la, state_dir):
+        la.JOBS.clear()
+        err = io.StringIO()
+        with patch.object(la, "STATE_DIR", Path(state_dir)):
+            with contextlib.redirect_stderr(err):
+                la.load_persisted_jobs()
+        return err.getvalue()
+
+    def tearDown(self):
+        la_mod = sys.modules.get("laptop_agent")
+        if la_mod is not None:
+            la_mod.JOBS.clear()
+
+    def test_field_table_covers_exactly_the_writer_fields(self):
+        la = self._import_agent()
+        self.assertEqual(
+            [row[0] for row in la.RESTORE_FIELD_TABLE],
+            ["id", "cwd", "cmd", "started_at", "ended_at",
+             "exit", "state", "interrupted"])
+        for row in la.RESTORE_FIELD_TABLE:
+            self.assertEqual(len(row), 4, row)
+        by_field = {row[0]: row for row in la.RESTORE_FIELD_TABLE}
+        for field in ("exit", "cwd", "cmd"):
+            self.assertIn("#1568", by_field[field][3])
+
+    def test_malformed_matrix_rows_are_skipped(self):
+        la = self._import_agent()
+        ts_bad = ["123", True, False, [150.0], {"t": 1},
+                  float("nan"), float("inf"), float("-inf"), 10**400]
+        cases = []
+        for value in ts_bad:
+            cases.append(("started_at", value))
+            cases.append(("ended_at", value))
+        for value in [42, True, ["a"], {"a": 1},
+                      "..", ".", "a/b", "a\\b", "other-job"]:
+            cases.append(("id", value))
+        for value in ["bogus", 7, True, ["done"], {"s": 1}]:
+            cases.append(("state", value))
+        for value in ["yes", 1, 0, ["true"], {"i": 1}]:
+            cases.append(("interrupted", value))
+        for field, value in cases:
+            with self.subTest(field=field, value=repr(value)):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    meta = self._base_meta("bad-job")
+                    meta[field] = value
+                    spool, raw = self._write_raw(state_dir, "bad-job",
+                                                 meta)
+                    self._write_raw(state_dir, "healthy",
+                                    self._base_meta("healthy"))
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn("bad-job", la.JOBS)
+                    self.assertIn("healthy", la.JOBS)
+                    self.assertTrue(spool.exists())
+                    self.assertEqual((spool / "meta.json").read_text(),
+                                     raw)
+                    lines = [ln for ln in stderr.splitlines()
+                             if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(spool), lines[0])
+                    self.assertIn(field, lines[0])
+
+    def test_non_object_container_matrix_rows_are_skipped(self):
+        la = self._import_agent()
+        for raw in ["[1, 2, 3]", '"hello"', "42", "true", "null"]:
+            with self.subTest(raw=raw):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    spool = Path(state_dir) / "jobs" / "bad-job"
+                    spool.mkdir(parents=True)
+                    (spool / "meta.json").write_text(raw)
+                    (spool / "stdout").write_bytes(b"")
+                    (spool / "stderr").write_bytes(b"")
+                    self._write_raw(state_dir, "healthy",
+                                    self._base_meta("healthy"))
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn("bad-job", la.JOBS)
+                    self.assertIn("healthy", la.JOBS)
+                    self.assertEqual((spool / "meta.json").read_text(),
+                                     raw)
+                    lines = [ln for ln in stderr.splitlines()
+                             if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(spool), lines[0])
+
+    def test_missing_and_null_rows_take_table_defaults(self):
+        la = self._import_agent()
+        for field in ["started_at", "ended_at", "id", "state",
+                      "interrupted"]:
+            for mode in ["missing", "null"]:
+                with self.subTest(field=field, mode=mode):
+                    with tempfile.TemporaryDirectory() as state_dir:
+                        meta = self._base_meta("case-job")
+                        if mode == "missing":
+                            del meta[field]
+                        else:
+                            meta[field] = None
+                        self._write_raw(state_dir, "case-job", meta)
+                        stderr = self._load(la, state_dir)
+                        self.assertEqual(stderr, "")
+                        job = la.JOBS["case-job"]
+                        if field == "started_at":
+                            self.assertEqual(job["started_at"], 0.0)
+                        elif field == "ended_at":
+                            # #1532 transition: stamped at load.
+                            self.assertIsInstance(job["ended_at"],
+                                                  float)
+                        elif field == "state":
+                            self.assertEqual(job["state"], "done")
+                        elif field == "interrupted":
+                            self.assertFalse(job["interrupted"])
+        with tempfile.TemporaryDirectory() as state_dir:
+            meta = self._base_meta("empty-id")
+            meta["id"] = ""
+            self._write_raw(state_dir, "empty-id", meta)
+            self.assertEqual(self._load(la, state_dir), "")
+            self.assertIn("empty-id", la.JOBS)
+
+    def test_well_formed_writer_values_restore_verbatim(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            self._write_raw(state_dir, "writer-job",
+                            self._base_meta("writer-job"))
+            meta = self._base_meta("int-stamps")
+            meta["started_at"] = 100
+            meta["ended_at"] = 150
+            meta["interrupted"] = True
+            self._write_raw(state_dir, "int-stamps", meta)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            job = la.JOBS["writer-job"]
+            self.assertEqual(job["started_at"], 100.0)
+            self.assertEqual(job["ended_at"], 150.0)
+            self.assertEqual(job["exit"], 0)
+            self.assertEqual(job["state"], "done")
+            self.assertFalse(job["interrupted"])
+            self.assertEqual(job["cwd"], "/")
+            self.assertEqual(job["cmd_repr"], "test")
+            stamps = la.JOBS["int-stamps"]
+            self.assertEqual(stamps["started_at"], 100.0)
+            self.assertEqual(stamps["ended_at"], 150.0)
+            self.assertTrue(stamps["interrupted"])
+
+    def test_both_transitions_and_their_persistence(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            running = self._base_meta("was-running")
+            running.update(state="running", exit=5, ended_at=None)
+            spool_r, _ = self._write_raw(state_dir, "was-running",
+                                         running)
+            done = self._base_meta("done-no-end")
+            done["ended_at"] = None
+            spool_d, _ = self._write_raw(state_dir, "done-no-end",
+                                         done)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            job = la.JOBS["was-running"]
+            self.assertEqual(job["state"], "done")
+            self.assertTrue(job["interrupted"])
+            self.assertIsNone(job["exit"])
+            self.assertIsInstance(job["ended_at"], float)
+            meta_r = json.loads((spool_r / "meta.json").read_text())
+            self.assertEqual(meta_r["state"], "done")
+            self.assertIs(meta_r["interrupted"], True)
+            self.assertIsNone(meta_r["exit"])
+            self.assertEqual(meta_r["ended_at"], job["ended_at"])
+            job_d = la.JOBS["done-no-end"]
+            self.assertIsInstance(job_d["ended_at"], float)
+            meta_d = json.loads((spool_d / "meta.json").read_text())
+            self.assertEqual(meta_d["ended_at"], job_d["ended_at"])
+
+    def test_validator_returns_a_single_reason_naming_the_field(self):
+        la = self._import_agent()
+        cases = [("started_at", "123"), ("ended_at", float("nan")),
+                 ("id", 42), ("id", ".."), ("state", "bogus"),
+                 ("interrupted", "yes")]
+        with tempfile.TemporaryDirectory() as state_dir:
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                for field, value in cases:
+                    with self.subTest(field=field, value=repr(value)):
+                        meta = self._base_meta("case-job")
+                        meta[field] = value
+                        job, persist, reason = \
+                            la._restore_persisted_job(meta, "case-job")
+                        self.assertIsNone(job)
+                        self.assertFalse(persist)
+                        self.assertIn(field, reason)
+                job, persist, reason = la._restore_persisted_job(
+                    self._base_meta("case-job"), "case-job")
+                self.assertIsNotNone(job)
+                self.assertIsNone(reason)
+
+    def test_write_meta_reload_round_trip_serves_identical_job(self):
+        la = self._import_agent()
+        job = {"id": "round-trip", "proc": None, "cwd": "/",
+               "cmd_repr": "echo hi", "started_at": 100.0,
+               "ended_at": 150.0, "exit": 3, "state": "done",
+               "interrupted": False, "_files": ()}
+        with tempfile.TemporaryDirectory() as state_dir:
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                la._write_meta(job)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            restored = la.JOBS["round-trip"]
+            for key in ("id", "cwd", "cmd_repr", "started_at",
+                        "ended_at", "exit", "state", "interrupted"):
+                self.assertEqual(restored[key], job[key], key)
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                public = la.job_public(restored)
+            self.assertEqual(public, {
+                "job_id": "round-trip", "state": "done", "exit": 3,
+                "cwd": "/", "cmd": "echo hi", "started_at": 100.0,
+                "interrupted": False, "duration_ms": 50000,
+                "stdout": "", "stderr": "", "out_next": 0,
+                "err_next": 0})
+
+
 class ReaperStartupTest(unittest.TestCase):
     """#1504: past-TTL finished jobs are reaped at startup, with no
     new POST /jobs — the daemon is only ever health-polled here.

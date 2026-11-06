@@ -264,8 +264,165 @@ def _write_meta(job):
         pass
 
 
+# Restore contract (design #1578, phase 1 -- issue #1579): the
+# writer is the schema. _write_meta() writes exactly the eight
+# fields in RESTORE_FIELD_TABLE; load_persisted_jobs() restores a
+# persisted entry only through _restore_persisted_job(), driven by
+# this table: for each field -- the shape the writer produces, the
+# default when the field is missing/null, and the disposition when
+# a present value violates the shape. Missing/null takes the named
+# default; a present-but-malformed value is never laundered through
+# a default -- the whole entry is skipped, one stderr line naming
+# the directory and the field/reason, the spool left on disk
+# untouched, and healthy siblings still restore (the fleet's
+# established skip contract, stated once here instead of being
+# restated in every per-field guard block).
+#
+# The exit/cwd/cmd rows record the writer shapes only: enforcement
+# for those three fields is owned by issue #1568, and this phase
+# adds no checks for them. When #1568 lands, its exit/cwd/cmd
+# checks fold into _restore_persisted_job() as table-driven rows
+# here -- not as new per-field guard blocks in the load loop.
+RESTORE_FIELD_TABLE = (
+    # (field, writer shape, missing/null default, malformed disposition)
+    ("id", "str job id (secrets.token_hex(6))",
+     "the spool directory name (also for an empty string)",
+     "skip: non-string, or a string that is not the directory "
+     "name or carries '.'/'..'/a path separator (#1548/#1554)"),
+    ("cwd", "str working directory",
+     "str(Path.home()) (via the restore tail's `or` default)",
+     "restored verbatim in this phase -- enforcement owned by #1568"),
+    ("cmd", "str command representation",
+     "'' (via the restore tail's `or` default)",
+     "restored verbatim in this phase -- enforcement owned by #1568"),
+    ("started_at", "float seconds since the epoch",
+     "0.0",
+     "skip: non-numeric, bool, non-finite, or oversized int "
+     "(#1513/#1523, PR #1534)"),
+    ("ended_at", "float seconds since the epoch, or None",
+     "stamped with time.time() at load (the transitions below)",
+     "skip: non-numeric, bool, non-finite, or oversized int "
+     "(#1513/#1523, PR #1534)"),
+    ("exit", "int process returncode, or None while running",
+     "None",
+     "restored verbatim in this phase -- enforcement owned by #1568"),
+    ("state", "'running' or 'done'",
+     "'done'",
+     "skip: any other present value (#1556)"),
+    ("interrupted", "bool",
+     "False",
+     "skip: any non-boolean present value (#1556)"),
+)
+
+# The only coercions restore may perform (the table's transitions):
+# persisted "running" -> "done" + interrupted=True + exit=None +
+# ended_at stamped (nobody can poll a dead process), and "done"
+# with a null/missing ended_at -> ended_at stamped at load (#1532),
+# so the reaper's TTL and duration_ms behave. Both persist via
+# _write_meta (as does a faithfully restored interrupted=True).
+# No other value is ever rewritten.
+
+
+def _bad_persisted_timestamp(value):
+    """True when a present timestamp violates its table row.
+
+    Missing/None is valid (the table default applies). A bool is
+    malformed (bool is an int subclass, so float(True) == 1.0
+    would otherwise slip through -- #1513), as are non-numeric
+    values, non-finite floats (json.loads parses the NaN/Infinity
+    literals -- #1523), and oversized ints, whose isfinite()
+    conversion raises OverflowError instead of returning False
+    (Codex review on PR #1534).
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return True
+    try:
+        return not math.isfinite(value)
+    except OverflowError:
+        return True
+
+
+def _restore_persisted_job(meta, dir_name):
+    """Validate one parsed meta.json against RESTORE_FIELD_TABLE.
+
+    Returns (job, persist, reason): on success the restored job
+    dict, whether the restore must be re-persisted via _write_meta
+    (a transition fired, or interrupted=True was restored), and
+    None; on a malformed entry, (None, False, the skip reason) --
+    the caller prints exactly one stderr line naming the spool
+    directory and this reason, and leaves the spool untouched.
+    Behaviour-identical to the per-field guard blocks this
+    replaces: #1522 (container), #1513/#1523 (timestamps),
+    #1548/#1554 (id), #1556 (state/interrupted), #1532 (the
+    ended_at transitions).
+    """
+    if not isinstance(meta, dict):
+        return None, False, "meta.json is not a JSON object"
+    _bad_fields = [name for name in ("started_at", "ended_at")
+                   if _bad_persisted_timestamp(meta.get(name))]
+    if _bad_fields:
+        return None, False, f"bad {'/'.join(_bad_fields)} in meta.json"
+    _raw_id = meta.get("id")
+    if _raw_id is not None and not isinstance(_raw_id, str):
+        return None, False, "non-string id in meta.json"
+    job_id = _raw_id or dir_name
+    if (job_id != dir_name or job_id in (".", "..")
+            or "/" in job_id or "\\" in job_id):
+        return None, False, "invalid id in meta.json"
+    try:
+        job_dir(job_id)
+    except (OSError, RuntimeError, ValueError):
+        return None, False, "unsafe spool directory"
+    _raw_state = meta.get("state")
+    if _raw_state is not None and _raw_state not in ("running", "done"):
+        return None, False, "invalid state in meta.json"
+    _raw_interrupted = meta.get("interrupted")
+    if (_raw_interrupted is not None
+            and not isinstance(_raw_interrupted, bool)):
+        return None, False, "non-boolean interrupted in meta.json"
+    state = _raw_state or "done"
+    exit_code = meta.get("exit")
+    ended_at = meta.get("ended_at")
+    interrupted = bool(_raw_interrupted)
+    stamped = False
+    if state == "running":
+        # The process did not survive the restart: nobody can poll
+        # it. A finite end time is what lets the reaper apply TTL
+        # to the restored job's spool; leaving it null retains it
+        # forever.
+        state = "done"
+        exit_code = None
+        interrupted = True
+        ended_at = time.time()
+    elif ended_at is None:
+        # A restored done job with a null/missing end time (#1532):
+        # the reaper reads null as "now", so its spool would be
+        # retained forever, and duration_ms would grow with
+        # wall-clock time on every poll. Stamp a finite end time
+        # at load and persist it, so the TTL runs from the stamp
+        # and duration is stable.
+        ended_at = time.time()
+        stamped = True
+    job = {"id": job_id, "proc": None,
+           "cwd": meta.get("cwd") or str(Path.home()),
+           "cmd_repr": meta.get("cmd") or "",
+           "started_at": float(meta.get("started_at") or 0.0),
+           "ended_at": ended_at,
+           "exit": exit_code, "state": state,
+           "interrupted": interrupted, "_files": ()}
+    return job, (interrupted or stamped), None
+
+
 def load_persisted_jobs():
-    """Rebuild JOBS from the spool directory so job IDs survive restarts."""
+    """Rebuild JOBS from the spool directory so job IDs survive restarts.
+
+    The loop does no field logic of its own (design #1578 rule 2):
+    iterate, skip symlink/non-directory entries as before, parse
+    JSON, validate through _restore_persisted_job(), then admit
+    the job or print the one-line skip reason and continue.
+    """
     try:
         base = _jobs_root()
         entries = list(base.iterdir())
@@ -283,137 +440,15 @@ def load_persisted_jobs():
             meta = json.loads((d / "meta.json").read_text())
         except (OSError, ValueError):
             continue
-        # Issue #1522: valid JSON that is not an object (list, string,
-        # number, bool, null) crashed startup with AttributeError on the
-        # first meta.get below. Apply the #1513 skip shape to the
-        # container shape: skip whole, one stderr line, spool untouched.
-        if not isinstance(meta, dict):
+        job, persist, reason = _restore_persisted_job(meta, d.name)
+        if job is None:
             print(f"laptop-agent: skipping persisted job {d}: "
-                  "meta.json is not a JSON object",
+                  f"{reason}",
                   file=sys.stderr, flush=True)
             continue
-        # Issue #1513: validate timestamps on the raw meta before any
-        # consumer (float() conversion, running->interrupted, summary,
-        # reaper) touches them. Valid is missing/None (defaults apply)
-        # or a finite int/float that is not a bool (bool is an int
-        # subclass, so float(True) == 1.0 would otherwise slip through).
-        # Strings (even numeric ones), lists, objects and bools are
-        # malformed, as are non-finite floats (issue #1523: json.loads
-        # parses the NaN/Infinity/-Infinity literals to float, and
-        # int() duration arithmetic raises on them): skip the whole
-        # entry like an unreadable/invalid-JSON dir, naming the dir
-        # on stderr, and leave the spool on disk.
-        def _bad_ts(value):
-            if value is None:
-                return False
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                return True
-            try:
-                return not math.isfinite(value)
-            except OverflowError:
-                # Oversized int (e.g. 10**400 from a JSON integer):
-                # isfinite() converts to float and raises instead of
-                # returning False. Such a timestamp is malformed for
-                # every consumer, so skip the entry rather than
-                # aborting startup (Codex review on PR #1534).
-                return True
-
-        _bad_fields = [name for name in ("started_at", "ended_at")
-                       if _bad_ts(meta.get(name))]
-        if _bad_fields:
-            print(f"laptop-agent: skipping persisted job {d}: "
-                  f"bad {'/'.join(_bad_fields)} in meta.json",
-                  file=sys.stderr, flush=True)
-            continue
-        # Issue #1548: validate the id field like the container and
-        # timestamps above. The daemon only ever writes string ids
-        # (secrets.token_hex(6)); any other present, non-null value is
-        # malformed. A list/object id is unhashable and raised TypeError
-        # at the JOBS assignment below, aborting startup, while a
-        # numeric/bool id reached job_dir() (Path / job_id) in
-        # _write_meta/job_summary/job_public/reap_old_jobs and raised
-        # there. Skip the whole entry, one stderr line naming the dir,
-        # spool untouched. Missing/null/empty-string keeps the
-        # established fallback to the spool directory name below.
-        _raw_id = meta.get("id")
-        if _raw_id is not None and not isinstance(_raw_id, str):
-            print(f"laptop-agent: skipping persisted job {d}: "
-                  "non-string id in meta.json",
-                  file=sys.stderr, flush=True)
-            continue
-        job_id = _raw_id or d.name
-        if (job_id != d.name or job_id in (".", "..")
-                or "/" in job_id or "\\" in job_id):
-            print(f"laptop-agent: skipping persisted job {d}: "
-                  "invalid id in meta.json",
-                  file=sys.stderr, flush=True)
-            continue
-        try:
-            job_dir(job_id)
-        except (OSError, RuntimeError, ValueError):
-            print(f"laptop-agent: skipping persisted job {d}: "
-                  "unsafe spool directory",
-                  file=sys.stderr, flush=True)
-            continue
-        # Issue #1556: validate the persisted state and interrupted
-        # fields like the container/timestamps/id above. _write_meta
-        # only ever writes state "running"/"done"; any other present
-        # value (bogus string, non-string) was carried verbatim into
-        # job_state()/job_summary()/job_public(), so /jobs served a
-        # nonexistent state and suppressed the recorded exit code
-        # (reported only when state == "done"). Missing/null keeps
-        # the established "done" default. Likewise _write_meta
-        # persists a boolean interrupted (True for a restart-
-        # interrupted done job), but the restore hardcoded False, so
-        # a second restart dropped the marker; a non-boolean present
-        # value is malformed. Both follow the skip contract: skip the
-        # whole entry, one stderr line naming the dir, spool left on
-        # disk, healthy siblings still restored.
-        _raw_state = meta.get("state")
-        if _raw_state is not None and _raw_state not in ("running", "done"):
-            print(f"laptop-agent: skipping persisted job {d}: "
-                  "invalid state in meta.json",
-                  file=sys.stderr, flush=True)
-            continue
-        _raw_interrupted = meta.get("interrupted")
-        if (_raw_interrupted is not None
-                and not isinstance(_raw_interrupted, bool)):
-            print(f"laptop-agent: skipping persisted job {d}: "
-                  "non-boolean interrupted in meta.json",
-                  file=sys.stderr, flush=True)
-            continue
-        state = _raw_state or "done"
-        exit_code = meta.get("exit")
-        ended_at = meta.get("ended_at")
-        interrupted = bool(_raw_interrupted)
-        stamped = False
-        if state == "running":
-            # The process did not survive the restart: nobody can poll it.
-            state = "done"
-            exit_code = None
-            interrupted = True
-            # A finite end time is what lets the reaper apply TTL to the
-            # restored job's spool; leaving it null retains it forever.
-            ended_at = time.time()
-        elif ended_at is None:
-            # A restored done job with a null/missing end time (#1532):
-            # the reaper reads null as "now", so its spool would be
-            # retained forever, and duration_ms would grow with
-            # wall-clock time on every poll. Mirror the interrupted
-            # branch: stamp a finite end time at load and persist it,
-            # so the TTL runs from the stamp and duration is stable.
-            ended_at = time.time()
-            stamped = True
-        JOBS[job_id] = {"id": job_id, "proc": None,
-                        "cwd": meta.get("cwd") or str(Path.home()),
-                        "cmd_repr": meta.get("cmd") or "",
-                        "started_at": float(meta.get("started_at") or 0.0),
-                        "ended_at": ended_at,
-                        "exit": exit_code, "state": state,
-                        "interrupted": interrupted, "_files": ()}
-        if interrupted or stamped:
-            _write_meta(JOBS[job_id])
-
+        JOBS[job["id"]] = job
+        if persist:
+            _write_meta(job)
 
 def job_state(job):
     if job["state"] == "running":
