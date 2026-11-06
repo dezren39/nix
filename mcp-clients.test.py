@@ -36,6 +36,12 @@ Covers the two PR #904 fallout bugs:
   stderr, file byte-for-byte unchanged, other clients still enforced,
   exit 1; absent or null mcpServers is still treated as no servers.
 
+- #1570: a JSON client whose whole document is valid JSON but not an
+  object (list, string, number, null) is a #906 per-client failure --
+  named on stderr with the deliberate top-level not-an-object message
+  (never a raw AttributeError), file byte-for-byte unchanged, other
+  clients still enforced, exit 1.
+
 - #1133: any argument other than the single optional --dry-run is
   rejected before any file is read or written -- usage on stderr naming
   the offending argument, exit 2, seeded files byte-unchanged, no backup.
@@ -121,6 +127,32 @@ for shape, label in (('"notanobject"', "string"), ('["a", "b"]', "list"),
           "Claude Code" in r.stderr and ".claude.json" in r.stderr, r.stderr)
     check(f"1217 {label} bad file byte-for-byte unchanged", read(claude_path) == seeded)
     check(f"1217 {label} Copilot still enforced",
+          '"mcpx"' in read(os.path.join(home, ".copilot/mcp-config.json")))
+    shutil.rmtree(home)
+
+# #1570: a JSON client document whose top level is valid JSON but not
+# an object (list, string, number, null) -- a #906 failure for that
+# client only: exit 1, Claude Code and its file named on stderr with
+# the deliberate not-an-object message naming the actual type (never
+# the raw AttributeError), the bad file byte-for-byte unchanged, and
+# the well-formed Copilot client still enforced.
+for shape, label, typename in (('[1, 2]', "list", "list"),
+                               ('"hello"', "string", "str"),
+                               ('42', "number", "int"),
+                               ('null', "null", "NoneType")):
+    home = fresh_home()
+    seed(home, ".copilot/mcp-config.json", '{"mcpServers": {"other": {"command": "x"}}}')
+    claude_path = seed(home, ".claude.json", shape)
+    seeded = read(claude_path)
+    r = run(home)
+    check(f"1570 {label} top level exits 1", r.returncode == 1, f"exit={r.returncode} stderr={r.stderr}")
+    check(f"1570 {label} stderr names Claude Code and its file",
+          "Claude Code" in r.stderr and ".claude.json" in r.stderr, r.stderr)
+    check(f"1570 {label} stderr gives the deliberate top-level message",
+          f"top-level value is a {typename}, not an object; not changed" in r.stderr
+          and "AttributeError" not in r.stderr and "has no attribute" not in r.stderr, r.stderr)
+    check(f"1570 {label} bad file byte-for-byte unchanged", read(claude_path) == seeded)
+    check(f"1570 {label} Copilot still enforced",
           '"mcpx"' in read(os.path.join(home, ".copilot/mcp-config.json")))
     shutil.rmtree(home)
 
