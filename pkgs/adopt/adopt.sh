@@ -76,6 +76,30 @@ done
 
 [[ -f "$flake" ]] || { echo "adopt: no flake at $flake (run from the repo root, or pass --flake)" >&2; exit 1; }
 
+# Write through a symlinked --flake to its target (#1557): a rename onto
+# the symlink would replace the link itself with a detached regular file,
+# leaving the real flake unchanged while reporting success. Resolve the
+# link chain (readlink with one argument is portable across GNU/BSD) and
+# write to the target instead; the link stays intact.
+write_flake="$flake"
+link_hops=0
+while [[ -L "$write_flake" ]]; do
+  link_hops=$((link_hops + 1))
+  if (( link_hops > 40 )); then
+    echo "adopt: too many symlinks resolving $flake" >&2; exit 1
+  fi
+  link_target="$(readlink "$write_flake")"
+  case "$link_target" in
+    /*) write_flake="$link_target" ;;
+    *)  write_flake="$(dirname "$write_flake")/$link_target" ;;
+  esac
+done
+
+# Preserve the original file's mode (#1557): forcing 644 would widen a
+# 600 flake on every edit. stat flags differ: GNU -c %a, BSD/macOS -f %Lp.
+orig_mode="$(stat -c %a "$write_flake" 2>/dev/null || stat -f %Lp "$write_flake")" ||
+  { echo "adopt: cannot stat $write_flake" >&2; exit 1; }
+
 # This Mac's name, the way darwin-rebuild matches it (flake.nix: darwin-
 # rebuild matches via scutil --get LocalHostName).
 if [[ -z "$host" ]]; then
@@ -144,8 +168,8 @@ if (( dry_run )); then
   exit 0
 fi
 
-tmp="$(mktemp "${flake}.adopt.XXXXXX")"
-blockfile="$(mktemp "${flake}.adopt-block.XXXXXX")"
+tmp="$(mktemp "${write_flake}.adopt.XXXXXX")"
+blockfile="$(mktemp "${write_flake}.adopt-block.XXXXXX")"
 trap 'rm -f "$tmp" "$blockfile"' EXIT
 printf '%s\n' "$block" >"$blockfile"
 # The block reaches awk through a file, never a -v assignment: macOS awk
@@ -164,8 +188,8 @@ awk -v blockfile="$blockfile" '
   { print }
   END { if (!done) exit 1 }
 ' "$flake" >"$tmp" || { echo "adopt: no 'hosts = {' map found in $flake" >&2; exit 1; }
-chmod 644 "$tmp"
-mv "$tmp" "$flake"
+chmod "$orig_mode" "$tmp"
+mv "$tmp" "$write_flake"
 trap - EXIT
 rm -f "$blockfile"
 
