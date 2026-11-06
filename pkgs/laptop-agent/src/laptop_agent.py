@@ -223,8 +223,30 @@ def run_one(spec, timeout_s):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _jobs_root():
+    state_root = STATE_DIR.resolve()
+    jobs_root = (STATE_DIR / "jobs").resolve()
+    if jobs_root.parent != state_root:
+        raise ValueError("laptop-agent jobs directory escapes state directory")
+    return jobs_root
+
+
 def job_dir(job_id):
-    return STATE_DIR / "jobs" / job_id
+    if (not isinstance(job_id, str) or not job_id or job_id in (".", "..")
+            or "/" in job_id or "\\" in job_id):
+        raise ValueError("invalid laptop-agent job id")
+    base = _jobs_root()
+    d = base / job_id
+    if d.is_symlink():
+        raise ValueError("laptop-agent job directory is a symlink")
+    try:
+        resolved = d.resolve()
+    except (OSError, RuntimeError) as e:
+        raise ValueError(
+            "cannot safely resolve laptop-agent job directory") from e
+    if resolved.parent != base:
+        raise ValueError("laptop-agent job directory escapes jobs directory")
+    return resolved
 
 
 def _write_meta(job):
@@ -244,12 +266,17 @@ def _write_meta(job):
 
 def load_persisted_jobs():
     """Rebuild JOBS from the spool directory so job IDs survive restarts."""
-    base = STATE_DIR / "jobs"
     try:
+        base = _jobs_root()
         entries = list(base.iterdir())
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         return
     for d in entries:
+        if d.is_symlink():
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  "spool directory is a symlink",
+                  file=sys.stderr, flush=True)
+            continue
         if not d.is_dir():
             continue
         try:
@@ -314,7 +341,20 @@ def load_persisted_jobs():
                   "non-string id in meta.json",
                   file=sys.stderr, flush=True)
             continue
-        job_id = meta.get("id") or d.name
+        job_id = _raw_id or d.name
+        if (job_id != d.name or job_id in (".", "..")
+                or "/" in job_id or "\\" in job_id):
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  "invalid id in meta.json",
+                  file=sys.stderr, flush=True)
+            continue
+        try:
+            job_dir(job_id)
+        except (OSError, RuntimeError, ValueError):
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  "unsafe spool directory",
+                  file=sys.stderr, flush=True)
+            continue
         state = meta.get("state") or "done"
         exit_code = meta.get("exit")
         ended_at = meta.get("ended_at")
