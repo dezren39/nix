@@ -1083,6 +1083,95 @@ class PersistedJobTimestampTest(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             la.job_dir(job_id)
 
+    def test_persisted_interrupted_true_round_trips_two_loads(self):
+        # Issue #1556: _write_meta persists interrupted:true for a
+        # restart-interrupted done job, but the restore hardcoded
+        # interrupted=False, so a second restart dropped the marker.
+        # Oracle: the flag restores faithfully and round-trips
+        # unchanged through _write_meta across repeated loads.
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            self._write_job(state_dir, "interrupted-job",
+                            interrupted=True, exit=None,
+                            started_at=100.0, ended_at=150.0)
+            self._write_job(state_dir, "plain-job",
+                            started_at=100.0, ended_at=150.0)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            job = la.JOBS["interrupted-job"]
+            self.assertTrue(job["interrupted"])
+            self.assertEqual(job["state"], "done")
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                self.assertTrue(la.job_public(job)["interrupted"])
+                la._write_meta(job)
+                meta = json.loads((Path(state_dir) / "jobs"
+                                   / "interrupted-job"
+                                   / "meta.json").read_text())
+            self.assertIs(meta["interrupted"], True)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(stderr, "")
+            self.assertTrue(la.JOBS["interrupted-job"]["interrupted"])
+            self.assertFalse(la.JOBS["plain-job"]["interrupted"])
+
+    def test_invalid_state_skipped_healthy_kept(self):
+        # Issue #1556: a persisted state outside {running, done} was
+        # restored verbatim, so /jobs served a nonexistent state and
+        # the recorded exit code was suppressed. Oracle: same skip
+        # contract as #1513/#1522/#1548 -- skipped whole, exactly one
+        # stderr line naming its dir, spool left on disk, healthy
+        # siblings unchanged.
+        la = self._import_agent()
+        cases = [
+            ("bogus-state", "bogus-state"),
+            ("numeric-state", 7),
+            ("list-state", ["done"]),
+            ("bool-state", True),
+        ]
+        for job_id, bad_state in cases:
+            with self.subTest(job_id=job_id, bad_state=repr(bad_state)):
+                with tempfile.TemporaryDirectory() as state_dir:
+                    bad = self._write_job(state_dir, job_id,
+                                          state=bad_state,
+                                          started_at=100.0,
+                                          ended_at=150.0)
+                    self._write_job(state_dir, "healthy",
+                                    started_at=100.0, ended_at=150.0)
+                    stderr = self._load(la, state_dir)
+                    self.assertNotIn(job_id, la.JOBS)
+                    self.assertEqual(sorted(la.JOBS), ["healthy"])
+                    self.assertTrue(bad.exists())
+                    lines = [ln for ln in stderr.splitlines() if ln.strip()]
+                    self.assertEqual(len(lines), 1, stderr)
+                    self.assertIn(str(bad), lines[0])
+                    self.assertIn("state", lines[0])
+
+    def test_missing_null_state_defaults_done_and_non_bool_interrupted_skipped(self):
+        # Issue #1556 acceptance: missing/null state keeps the
+        # established "done" default, while a non-boolean interrupted
+        # follows the loader's malformed-field handling (skip whole).
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            missing = self._write_job(state_dir, "missing-state",
+                                      started_at=100.0, ended_at=150.0)
+            meta = json.loads((missing / "meta.json").read_text())
+            del meta["state"]
+            (missing / "meta.json").write_text(json.dumps(meta))
+            self._write_job(state_dir, "null-state", state=None,
+                            started_at=100.0, ended_at=150.0)
+            bad = self._write_job(state_dir, "string-interrupted",
+                                  interrupted="yes",
+                                  started_at=100.0, ended_at=150.0)
+            self._write_job(state_dir, "healthy",
+                            started_at=100.0, ended_at=150.0)
+            stderr = self._load(la, state_dir)
+            self.assertEqual(la.JOBS["missing-state"]["state"], "done")
+            self.assertEqual(la.JOBS["null-state"]["state"], "done")
+            self.assertNotIn("string-interrupted", la.JOBS)
+            self.assertTrue(bad.exists())
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, stderr)
+            self.assertIn(str(bad), lines[0])
+            self.assertIn("interrupted", lines[0])
 
 class ReaperStartupTest(unittest.TestCase):
     """#1504: past-TTL finished jobs are reaped at startup, with no
