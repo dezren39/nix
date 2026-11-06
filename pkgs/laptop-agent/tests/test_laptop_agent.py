@@ -999,6 +999,90 @@ class PersistedJobTimestampTest(unittest.TestCase):
             self.assertEqual(sorted(la.JOBS),
                              ["empty-id", "missing-id", "null-id"])
 
+    def test_parent_string_id_is_skipped_without_reaping_outside_jobs(self):
+        # Issue #1554: a persisted traversal id must not escape the jobs
+        # directory through the public serializers or startup reaper.
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            state = Path(state_dir)
+            bad = self._write_job(
+                state_dir, "bad-parent-id", id="..",
+                started_at=100.0, ended_at=time.time() - 2 * la.JOB_TTL_S)
+            healthy = self._write_job(
+                state_dir, "healthy", started_at=100.0, ended_at=time.time())
+            sentinel = state / "keep-me"
+            sentinel.write_text("outside the jobs directory")
+
+            stderr = self._load(la, state_dir)
+            self.assertEqual(sorted(la.JOBS), ["healthy"])
+            self.assertTrue(bad.exists())
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1, stderr)
+            self.assertIn(str(bad), lines[0])
+            self.assertIn("id", lines[0])
+
+            with patch.object(la, "STATE_DIR", state):
+                summaries = [la.job_summary(j)
+                             for j in list(la.JOBS.values())]
+                publics = [la.job_public(j)
+                           for j in list(la.JOBS.values())]
+                la.reap_old_jobs()
+
+            self.assertEqual([s["job_id"] for s in summaries], ["healthy"])
+            self.assertEqual([p["job_id"] for p in publics], ["healthy"])
+            self.assertTrue(sentinel.exists())
+            self.assertTrue(healthy.exists())
+            self.assertTrue(bad.exists())
+
+    def test_separator_and_cross_job_ids_are_skipped(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            bad_separator = self._write_job(
+                state_dir, "bad-separator", id="../escape", state="running",
+                exit=None, started_at=100.0, ended_at=None)
+            bad_separator_meta = (bad_separator / "meta.json").read_text()
+            cross_job = self._write_job(
+                state_dir, "cross-job", id="healthy",
+                started_at=100.0, ended_at=time.time() - 2 * la.JOB_TTL_S)
+            healthy = self._write_job(
+                state_dir, "healthy", started_at=100.0, ended_at=time.time())
+
+            stderr = self._load(la, state_dir)
+            self.assertEqual(sorted(la.JOBS), ["healthy"])
+            self.assertEqual(la.JOBS["healthy"]["cmd_repr"], "test")
+            self.assertTrue(bad_separator.exists())
+            self.assertEqual((bad_separator / "meta.json").read_text(),
+                             bad_separator_meta)
+            self.assertFalse((Path(state_dir) / "escape").exists())
+            self.assertTrue(cross_job.exists())
+            lines = [ln for ln in stderr.splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 2, stderr)
+            self.assertTrue(all(any(str(spool) in line for line in lines)
+                                for spool in (bad_separator, cross_job)),
+                            stderr)
+
+            with patch.object(la, "STATE_DIR", Path(state_dir)):
+                la.reap_old_jobs()
+            self.assertTrue(bad_separator.exists())
+            self.assertTrue(cross_job.exists())
+            self.assertTrue(healthy.exists())
+
+    def test_job_dir_rejects_non_child_and_symlink_paths(self):
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            state = Path(state_dir)
+            jobs = state / "jobs"
+            jobs.mkdir()
+            outside = state / "outside"
+            outside.mkdir()
+            (jobs / "linked").symlink_to(outside, target_is_directory=True)
+            with patch.object(la, "STATE_DIR", state):
+                for job_id in ("..", ".", "../outside", "nested/job",
+                               "nested\\job", "linked"):
+                    with self.subTest(job_id=job_id):
+                        with self.assertRaises(ValueError):
+                            la.job_dir(job_id)
+
 
 class ReaperStartupTest(unittest.TestCase):
     """#1504: past-TTL finished jobs are reaped at startup, with no
@@ -1067,6 +1151,65 @@ class ReaperStartupTest(unittest.TestCase):
                 self.assertFalse(old.exists())
                 self.assertTrue(fresh.exists())
                 self.assertTrue(running.exists())
+            finally:
+                proc.terminate()
+                proc.wait(timeout=10)
+                os.unlink(token_path)
+
+    def test_unsafe_persisted_ids_do_not_escape_jobs_at_startup(self):
+        now = time.time()
+        with tempfile.TemporaryDirectory() as state_dir:
+            state = Path(state_dir)
+            bad_parent = self._write_job(
+                state_dir, "bad-parent", id="..", started_at=now - 26 * 3600,
+                ended_at=now - 25 * 3600)
+            bad_separator = self._write_job(
+                state_dir, "bad-separator", id="a/b",
+                started_at=now - 26 * 3600, ended_at=now - 25 * 3600)
+            cross_job = self._write_job(
+                state_dir, "cross-job", id="healthy",
+                started_at=now - 26 * 3600, ended_at=now - 25 * 3600)
+            healthy = self._write_job(
+                state_dir, "healthy", started_at=now - 3600,
+                ended_at=now - 1800)
+            sentinel = state / "keep-me"
+            sentinel.write_text("state outside jobs must survive")
+
+            with tempfile.NamedTemporaryFile("w", delete=False) as f:
+                f.write("reaper-test-token\n")
+                token_path = f.name
+            port = free_port()
+            env = dict(os.environ,
+                       LAPTOP_AGENT_TOKEN_FILE=token_path,
+                       LAPTOP_AGENT_HOST="127.0.0.1",
+                       LAPTOP_AGENT_PORT=str(port),
+                       LAPTOP_AGENT_STATE=state_dir)
+            proc = subprocess.Popen([sys.executable, str(AGENT)], env=env,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/jobs",
+                    headers={"X-Agent-Token": "reaper-test-token"})
+                deadline = time.time() + 15
+                jobs = None
+                while time.time() < deadline:
+                    try:
+                        with urllib.request.urlopen(req, timeout=2) as r:
+                            jobs = json.loads(r.read())["jobs"]
+                        break
+                    except (urllib.error.URLError, ConnectionError):
+                        time.sleep(0.1)
+                else:
+                    self.fail("agent did not start")
+
+                self.assertEqual({j["job_id"] for j in jobs}, {"healthy"})
+                self.assertEqual(jobs[0]["cmd"], "test")
+                self.assertTrue(sentinel.exists())
+                self.assertTrue(healthy.exists())
+                self.assertTrue(bad_parent.exists())
+                self.assertTrue(bad_separator.exists())
+                self.assertTrue(cross_job.exists())
             finally:
                 proc.terminate()
                 proc.wait(timeout=10)
