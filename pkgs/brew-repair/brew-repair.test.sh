@@ -27,6 +27,10 @@
 # were verified. The checked app is the target's basename (the source
 # name is not installed); present = healthy, missing = broken naming it.
 # Scenario S covers #1465: piped output and NO_COLOR output contain no ANSI.
+# Scenarios T-U cover #1552: the rename excuse for a cask absent from the
+# scan was a substring match on token names, so 1password-cli counted as
+# checked because 1password was seen. The excuse now requires brew's own
+# evidence — a returned cask whose old_tokens names the absent cask.
 # This drives the REAL brew-repair.sh against a call-logging stub brew
 # with two broken casks (alpha, beta; both .apps missing).
 set -uo pipefail
@@ -58,6 +62,8 @@ case "$1" in
     case "${BREW_STUB_MODE:-broken}" in
       list-fail) echo "Error: brew list blew up" >&2; exit 1 ;;
       list-empty) exit 0 ;;
+      substring) printf '%s\n' 1password 1password-cli alpha ;;
+      rename) printf '%s\n' docker alpha ;;
       *) printf '%s\n' alpha beta ;;
     esac ;;
   info)
@@ -66,6 +72,8 @@ case "$1" in
       info-garbage) printf '%s\n' 'this is not json' ;;
       partial) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]}]}' ;;
       target) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app",{"target":"Target Alpha.app"}]}]},{"token":"beta","artifacts":[{"app":["Beta.app"]}]}]}' ;;
+      substring) printf '%s\n' '{"casks":[{"token":"1password","artifacts":[{"app":["OnePassword.app"]}]},{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]}]}' ;;
+      rename) printf '%s\n' '{"casks":[{"token":"docker-desktop","old_tokens":["docker"],"artifacts":[{"app":["Docker.app"]}]},{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]}]}' ;;
       *) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]},{"token":"beta","artifacts":[{"app":["Beta.app"]}]}]}' ;;
     esac ;;
   reinstall)
@@ -300,6 +308,35 @@ if [[ "$out_s2" == *$'\033'* ]]; then
 fi
 grep -q "Summary:" <<<"$out_s" || fail "S: control -- summary missing, plain-output check is vacuous"
 [[ $failures -eq $start_s ]] && ok "S: piped and NO_COLOR output are plain text (no ANSI escapes)"
+
+# ─── Scenario T (#1552): substring-shaped absent cask is unchecked ───
+# 1password and 1password-cli are both installed; the scan returns only
+# 1password (+ healthy alpha), with no old_tokens evidence. The old
+# substring excuse counted 1password-cli as renamed/checked and the run
+# printed a healthy verdict with exit 0.
+mkdir -p "$FAKE_HOME/Applications/OnePassword.app" "$FAKE_HOME/Applications/Alpha.app"
+start=$failures
+out_t="$(BREW_STUB_MODE=substring run_brew_repair)"
+rc_t=$?
+[[ $rc_t -eq 1 ]] || fail "T: expected exit 1, got $rc_t"
+grep -q "1password-cli (installed but unknown to brew" <<<"$out_t" || fail "T: 1password-cli not reported unknown"
+grep -q "1 unchecked" <<<"$out_t" || fail "T: summary does not count 1password-cli as unchecked"
+grep -q "All cask apps are healthy" <<<"$out_t" && fail "T: healthy verdict printed with an unverified cask"
+[[ $failures -eq $start ]] && ok "T: substring-shaped absent cask (1password-cli) counts as unchecked, exit 1, no healthy verdict"
+
+# ─── Scenario U (#1552 control): genuine old_tokens rename is excused ─
+# docker is installed; the scan returns docker-desktop whose old_tokens
+# names docker, with its app present. The absent docker must NOT count
+# as unchecked — the rename is verified under the new token.
+mkdir -p "$FAKE_HOME/Applications/Docker.app" "$FAKE_HOME/Applications/Alpha.app"
+start=$failures
+out_u="$(BREW_STUB_MODE=rename run_brew_repair)"
+rc_u=$?
+[[ $rc_u -eq 0 ]] || fail "U: expected exit 0, got $rc_u"
+grep -q "docker (renamed to docker-desktop" <<<"$out_u" || fail "U: docker not reported as renamed to docker-desktop"
+grep -q "0 unchecked" <<<"$out_u" || fail "U: summary counts the renamed cask as unchecked"
+grep -q "All cask apps are healthy!" <<<"$out_u" || fail "U: healthy verdict missing for a verified rename"
+[[ $failures -eq $start ]] && ok "U: genuine rename via old_tokens is excused, exit 0, healthy verdict"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
