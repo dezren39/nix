@@ -108,7 +108,8 @@ echo ""
 TMPFILE=$(mktemp)
 INFOFILE=$(mktemp)
 ERRFILE=$(mktemp)
-trap 'rm -f "$TMPFILE" "$INFOFILE" "$ERRFILE" "$LISTFILE" "$LISTERR"' EXIT
+RENAMEFILE=$(mktemp)
+trap 'rm -f "$TMPFILE" "$INFOFILE" "$ERRFILE" "$RENAMEFILE" "$LISTFILE" "$LISTERR"' EXIT
 
 # The healthy/broken verdict is only sound if this scan actually ran, so
 # neither step may fail silently (#926): a failed `brew info` or unparseable
@@ -120,10 +121,11 @@ if ! brew info --json=v2 --cask "${CASKS[@]}" > "$INFOFILE" 2> "$ERRFILE"; then
   exit 1
 fi
 
-if ! python3 -c "
+if ! BREW_REPAIR_RENAMES="$RENAMEFILE" python3 -c "
 import json, os, sys
 data = json.load(sys.stdin)
-for c in data.get('casks', []):
+casks = data.get('casks', [])
+for c in casks:
     apps = []
     for a in c.get('artifacts', []):
         if isinstance(a, dict) and 'app' in a:
@@ -142,6 +144,18 @@ for c in data.get('casks', []):
             else:
                 apps.extend(e for e in elements if isinstance(e, str))
     print(c['token'] + '|' + '|'.join(apps))
+# Rename evidence (#1552): a cask object's old_tokens names its
+# previous tokens, so record old|new pairs for the shell side. This
+# replaces the substring name-shape guess: docker->docker-desktop is
+# a real rename while 1password vs 1password-cli are unrelated casks,
+# and both pairs share the same substring/prefix shape.
+renames_path = os.environ.get('BREW_REPAIR_RENAMES')
+if renames_path:
+    with open(renames_path, 'w') as rf:
+        for c in casks:
+            for old in c.get('old_tokens') or []:
+                if isinstance(old, str):
+                    rf.write(old + '|' + c['token'] + '\n')
 " < "$INFOFILE" > "$TMPFILE" 2> "$ERRFILE"; then
   echo "brew-repair: error: could not parse 'brew info' output as JSON — no casks could be verified" >&2
   [[ -s "$ERRFILE" ]] && sed 's/^/  /' "$ERRFILE" >&2
@@ -159,6 +173,18 @@ declare -A TOKEN_TO_ORIGINAL
 for cask in "${CASKS[@]}"; do
   TOKEN_TO_ORIGINAL["$cask"]="$cask"
 done
+
+# Rename evidence from brew itself (#1552): map each old token to the
+# token that replaced it, and record the original (installed) name for
+# the returned token so broken-cask reporting can name both.
+declare -A RENAMED_TO_NEW
+if [[ -s "$RENAMEFILE" ]]; then
+  while IFS='|' read -r old_token new_token; do
+    [[ -z "$old_token" ]] && continue
+    RENAMED_TO_NEW["$old_token"]="$new_token"
+    TOKEN_TO_ORIGINAL["$new_token"]="$old_token"
+  done < "$RENAMEFILE"
+fi
 
 BROKEN=()
 BROKEN_ORIGINAL=()
@@ -217,16 +243,17 @@ done < "$TMPFILE"
 UNCHECKED=0
 for cask in "${CASKS[@]}"; do
   if [[ -z "${SEEN_TOKENS[$cask]:-}" ]]; then
-    # This cask wasn't in JSON output — it's been renamed or removed
-    # Check if its renamed version was already seen
-    found=false
-    for token in "${!SEEN_TOKENS[@]}"; do
-      if [[ "$token" == *"$cask"* ]] || [[ "$cask" == *"$token"* ]]; then
-        found=true
-        break
-      fi
-    done
-    if [[ "$found" == false ]] && ! is_skipped "$cask"; then
+    # This cask wasn't in JSON output — it may have been renamed or
+    # removed upstream. A rename excuse needs brew's own evidence: a
+    # returned cask listing this cask in old_tokens (#1552). A name
+    # shape proves nothing — docker→docker-desktop is a real rename
+    # while 1password vs 1password-cli are unrelated casks, and both
+    # pairs share the same substring/prefix shape — so the old
+    # substring match excused a cask that was never verified and
+    # folded it into the healthy verdict.
+    if [[ -n "${RENAMED_TO_NEW[$cask]:-}" ]]; then
+      [[ "$QUIET" == false ]] && echo -e "  ℹ️  $cask (renamed to ${RENAMED_TO_NEW[$cask]} — verified under its new token)"
+    elif ! is_skipped "$cask"; then
       # Absent from a *successful* scan: not verified, so it counts as
       # unchecked and must not fold into a "healthy" verdict (#926).
       UNCHECKED=$((UNCHECKED + 1))
