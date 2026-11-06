@@ -130,22 +130,32 @@ function durationToSeconds(d: Duration): number {
   );
 }
 
+// VS Code returns a hand-edited settings.json value verbatim even when
+// it violates the package.json schema, so a numeric setting can arrive
+// as a string/object and its arithmetic yields NaN -- and NaN fails
+// open in the cleanup passes (#1574). Validate where settings are read:
+// anything that is not a finite number falls back to the setting's
+// documented default, so a Config can never carry NaN/Infinity.
+function finiteNumberOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function getDuration(section: string): number {
   const c = vscode.workspace.getConfiguration(section);
   return durationToSeconds({
-    years: c.get<number>("years", 0),
-    months: c.get<number>("months", 0),
-    days: c.get<number>("days", 0),
-    hours: c.get<number>("hours", 0),
-    minutes: c.get<number>("minutes", 0),
-    seconds: c.get<number>("seconds", 0),
+    years: finiteNumberOr(c.get("years", 0), 0),
+    months: finiteNumberOr(c.get("months", 0), 0),
+    days: finiteNumberOr(c.get("days", 0), 0),
+    hours: finiteNumberOr(c.get("hours", 0), 0),
+    minutes: finiteNumberOr(c.get("minutes", 0), 0),
+    seconds: finiteNumberOr(c.get("seconds", 0), 0),
   });
 }
 
 function getInterval(key: string): number {
   const c = vscode.workspace.getConfiguration("bufferBackup");
-  const v = c.get<number | null>(key, null);
-  if (v === null || v === undefined || v === 0) {
+  const v: unknown = c.get(key, null);
+  if (typeof v !== "number" || !Number.isFinite(v) || v === 0) {
     return 5000;
   }
   return Math.max(1, v) * 1000;
@@ -169,11 +179,11 @@ function getConfig(): Config {
   return {
     backupDir: c.get("backupDir", "") || DEFAULT_BACKUP_DIR,
     maxAgeSec: getDuration("bufferBackup.maxAge"),
-    maxTotalMb: c.get("maxTotalMb", 0),
-    rolloutMb: c.get("rolloutMb", 0),
-    maxFileCount: c.get("maxFileCount", 0),
-    rolloutFileCount: c.get("rolloutFileCount", 0),
-    debounceMs: c.get("debounceMs", 3000),
+    maxTotalMb: finiteNumberOr(c.get("maxTotalMb", 0), 0),
+    rolloutMb: finiteNumberOr(c.get("rolloutMb", 0), 0),
+    maxFileCount: finiteNumberOr(c.get("maxFileCount", 0), 0),
+    rolloutFileCount: finiteNumberOr(c.get("rolloutFileCount", 0), 0),
+    debounceMs: finiteNumberOr(c.get("debounceMs", 3000), 3000),
     ageCleanupMs: getInterval("ageCleanupIntervalSeconds"),
     sizeCleanupMs: getInterval("sizeCleanupIntervalSeconds"),
     countCleanupMs: getInterval("countCleanupIntervalSeconds"),
@@ -273,7 +283,15 @@ function cleanupAge(cfg: Config): void {
 }
 
 function cleanupSize(cfg: Config): void {
-  if (cfg.maxTotalMb <= 0 || cfg.rolloutMb <= 0) {
+  // Defence in depth (#1574): a non-finite limit/rollout is disabled,
+  // never unbounded deletion -- NaN comparisons are all false, so an
+  // unguarded NaN target makes every loop guard fail open.
+  if (
+    !Number.isFinite(cfg.maxTotalMb) ||
+    !Number.isFinite(cfg.rolloutMb) ||
+    cfg.maxTotalMb <= 0 ||
+    cfg.rolloutMb <= 0
+  ) {
     return;
   }
   const entries = listBackups(cfg.backupDir);
@@ -310,7 +328,14 @@ function cleanupSize(cfg: Config): void {
 }
 
 function cleanupCount(cfg: Config): void {
-  if (cfg.maxFileCount <= 0 || cfg.rolloutFileCount <= 0) {
+  // Defence in depth (#1574): as in cleanupSize, a non-finite
+  // limit/rollout disables the pass instead of deleting everything.
+  if (
+    !Number.isFinite(cfg.maxFileCount) ||
+    !Number.isFinite(cfg.rolloutFileCount) ||
+    cfg.maxFileCount <= 0 ||
+    cfg.rolloutFileCount <= 0
+  ) {
     return;
   }
   const entries = listBackups(cfg.backupDir);
