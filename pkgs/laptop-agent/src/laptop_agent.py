@@ -355,10 +355,37 @@ def load_persisted_jobs():
                   "unsafe spool directory",
                   file=sys.stderr, flush=True)
             continue
-        state = meta.get("state") or "done"
+        # Issue #1556: validate the persisted state and interrupted
+        # fields like the container/timestamps/id above. _write_meta
+        # only ever writes state "running"/"done"; any other present
+        # value (bogus string, non-string) was carried verbatim into
+        # job_state()/job_summary()/job_public(), so /jobs served a
+        # nonexistent state and suppressed the recorded exit code
+        # (reported only when state == "done"). Missing/null keeps
+        # the established "done" default. Likewise _write_meta
+        # persists a boolean interrupted (True for a restart-
+        # interrupted done job), but the restore hardcoded False, so
+        # a second restart dropped the marker; a non-boolean present
+        # value is malformed. Both follow the skip contract: skip the
+        # whole entry, one stderr line naming the dir, spool left on
+        # disk, healthy siblings still restored.
+        _raw_state = meta.get("state")
+        if _raw_state is not None and _raw_state not in ("running", "done"):
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  "invalid state in meta.json",
+                  file=sys.stderr, flush=True)
+            continue
+        _raw_interrupted = meta.get("interrupted")
+        if (_raw_interrupted is not None
+                and not isinstance(_raw_interrupted, bool)):
+            print(f"laptop-agent: skipping persisted job {d}: "
+                  "non-boolean interrupted in meta.json",
+                  file=sys.stderr, flush=True)
+            continue
+        state = _raw_state or "done"
         exit_code = meta.get("exit")
         ended_at = meta.get("ended_at")
-        interrupted = False
+        interrupted = bool(_raw_interrupted)
         stamped = False
         if state == "running":
             # The process did not survive the restart: nobody can poll it.
