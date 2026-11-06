@@ -44,7 +44,9 @@ function stripTypes(code) {
     .replace(/: boolean/g, "")
     .replace(/: number/g, "")
     .replace(/: void/g, "")
-    .replace(/: Config/g, "");
+    .replace(/: Config/g, "")
+    .replace(/: Duration/g, "")
+    .replace(/: unknown/g, "");
 }
 
 const factory = new Function(
@@ -392,6 +394,102 @@ function fixtureSymlinkedDay() {
   assert.ok(fs.existsSync(target), "cleanupAge deleted the symlink target");
   fs.rmSync(root, { recursive: true, force: true });
   console.log("pass: symlinked files are not backup entries (#1524)");
+}
+
+
+// 16. Non-finite limit, cleanupSize (#1574): a NaN maxTotalMb deleted
+//     every backup but the newest before the guard -- the disabled
+//     check (<= 0) is false for NaN and the loop guard never breaks.
+//     A non-finite limit or rollout must delete nothing.
+for (const bad of [NaN, Infinity, -Infinity]) {
+  const dir = fixture(10, 1024);
+  cleanupSize({ backupDir: dir, maxTotalMb: bad, rolloutMb: 0.01 });
+  assert.strictEqual(remainingNames(dir).length, 10, `cleanupSize deleted with maxTotalMb=${bad}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+{
+  const dir = fixture(10, 1024);
+  cleanupSize({ backupDir: dir, maxTotalMb: 0.02, rolloutMb: NaN });
+  assert.strictEqual(remainingNames(dir).length, 10, "cleanupSize deleted with rolloutMb=NaN");
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupSize with a non-finite limit/rollout deletes nothing (#1574)");
+}
+
+// 17. Non-finite limit, cleanupCount (#1574): same fail-open shape as
+//     cleanupSize -- NaN maxFileCount deleted all but the newest.
+for (const bad of [NaN, Infinity, -Infinity]) {
+  const dir = fixture(10);
+  cleanupCount({ backupDir: dir, maxFileCount: bad, rolloutFileCount: 5 });
+  assert.strictEqual(remainingNames(dir).length, 10, `cleanupCount deleted with maxFileCount=${bad}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+{
+  const dir = fixture(10);
+  cleanupCount({ backupDir: dir, maxFileCount: 10, rolloutFileCount: NaN });
+  assert.strictEqual(remainingNames(dir).length, 10, "cleanupCount deleted with rolloutFileCount=NaN");
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupCount with a non-finite limit/rollout deletes nothing (#1574)");
+}
+
+// 18. Config reading validates numeric settings (#1574): getConfig /
+//     getDuration / getInterval are extracted with a stub vscode whose
+//     getConfiguration returns hand-edited (schema-violating) values
+//     verbatim, exactly as VS Code does. Non-number / non-finite values
+//     must fall back to the documented defaults, and a non-numeric
+//     interval must yield 5000 ms, not NaN (setInterval(NaN) is 0 ms).
+{
+  let configValues = {};
+  const fakeVscode = {
+    workspace: {
+      getConfiguration: (section) => ({
+        get: (key, fallback) => {
+          const full = `${section}.${key}`;
+          return Object.prototype.hasOwnProperty.call(configValues, full)
+            ? configValues[full]
+            : fallback;
+        },
+      }),
+    },
+  };
+  const configFactory = new Function(
+    "vscode",
+    "DEFAULT_BACKUP_DIR",
+    `${stripTypes(extractFunction("finiteNumberOr"))}
+     ${stripTypes(extractFunction("durationToSeconds"))}
+     ${stripTypes(extractFunction("getDuration"))}
+     ${stripTypes(extractFunction("getInterval"))}
+     ${stripTypes(extractFunction("getConfig"))}
+     return { getConfig, getInterval, finiteNumberOr };`,
+  );
+  const { getConfig, getInterval } = configFactory(fakeVscode, "/tmp/fallback-dir");
+  configValues = {
+    "bufferBackup.maxTotalMb": "abc",
+    "bufferBackup.rolloutMb": Infinity,
+    "bufferBackup.maxFileCount": NaN,
+    "bufferBackup.rolloutFileCount": {},
+    "bufferBackup.debounceMs": "3000",
+    "bufferBackup.maxAge.years": "2",
+    "bufferBackup.maxAge.days": 1,
+    "bufferBackup.ageCleanupIntervalSeconds": "abc",
+    "bufferBackup.sizeCleanupIntervalSeconds": 0,
+    "bufferBackup.countCleanupIntervalSeconds": 2,
+  };
+  const cfg = getConfig();
+  assert.strictEqual(cfg.maxTotalMb, 0, "non-numeric maxTotalMb must fall back to 0 (disabled)");
+  assert.strictEqual(cfg.rolloutMb, 0, "Infinity rolloutMb must fall back to 0");
+  assert.strictEqual(cfg.maxFileCount, 0, "NaN maxFileCount must fall back to 0 (disabled)");
+  assert.strictEqual(cfg.rolloutFileCount, 0, "object rolloutFileCount must fall back to 0");
+  assert.strictEqual(cfg.debounceMs, 3000, "non-numeric debounceMs must fall back to 3000");
+  assert.strictEqual(cfg.maxAgeSec, 86400, "non-numeric duration parts fall back to 0; 1 day remains");
+  assert.strictEqual(cfg.ageCleanupMs, 5000, "non-numeric interval must yield the 5000 ms default");
+  assert.strictEqual(cfg.sizeCleanupMs, 5000, "0 interval keeps the existing 5000 ms rule");
+  assert.strictEqual(cfg.countCleanupMs, 2000, "a valid interval is unchanged");
+  for (const [k, v] of Object.entries(cfg)) {
+    if (typeof v === "number") assert.ok(Number.isFinite(v), `Config.${k} must be finite, got ${v}`);
+  }
+  configValues = { "bufferBackup.ageCleanupIntervalSeconds": NaN };
+  assert.strictEqual(getInterval("ageCleanupIntervalSeconds"), 5000, "NaN interval must yield 5000 ms");
+  console.log("pass: getConfig/getDuration/getInterval validate numeric settings (#1574)");
 }
 
 console.log("cleanup-count.test.mjs: all assertions passed");
