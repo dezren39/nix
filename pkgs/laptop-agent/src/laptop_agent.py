@@ -278,11 +278,11 @@ def _write_meta(job):
 # established skip contract, stated once here instead of being
 # restated in every per-field guard block).
 #
-# The exit/cwd/cmd rows record the writer shapes only: enforcement
-# for those three fields is owned by issue #1568, and this phase
-# adds no checks for them. When #1568 lands, its exit/cwd/cmd
-# checks fold into _restore_persisted_job() as table-driven rows
-# here -- not as new per-field guard blocks in the load loop.
+# The exit/cwd/cmd rows originally recorded the writer shapes
+# only, with enforcement owned by issue #1568; #1568 has since
+# folded its checks into _restore_persisted_job() as table-driven
+# rows below -- not as per-field guard blocks in the load loop --
+# exactly as the fold-in rule first stated here required.
 RESTORE_FIELD_TABLE = (
     # (field, writer shape, missing/null default, malformed disposition)
     ("id", "str job id (secrets.token_hex(6))",
@@ -291,10 +291,12 @@ RESTORE_FIELD_TABLE = (
      "name or carries '.'/'..'/a path separator (#1548/#1554)"),
     ("cwd", "str working directory",
      "str(Path.home()) (via the restore tail's `or` default)",
-     "restored verbatim in this phase -- enforcement owned by #1568"),
+     "skip: any non-string present value (#1568, folded in as "
+     "a table row per #1579)"),
     ("cmd", "str command representation",
      "'' (via the restore tail's `or` default)",
-     "restored verbatim in this phase -- enforcement owned by #1568"),
+     "skip: any non-string present value (#1568, folded in as "
+     "a table row per #1579)"),
     ("started_at", "float seconds since the epoch",
      "0.0",
      "skip: non-numeric, bool, non-finite, or oversized int "
@@ -305,7 +307,8 @@ RESTORE_FIELD_TABLE = (
      "(#1513/#1523, PR #1534)"),
     ("exit", "int process returncode, or None while running",
      "None",
-     "restored verbatim in this phase -- enforcement owned by #1568"),
+     "skip: non-integer or bool present value (#1568, folded "
+     "in as a table row per #1579)"),
     ("state", "'running' or 'done'",
      "'done'",
      "skip: any other present value (#1556)"),
@@ -356,7 +359,8 @@ def _restore_persisted_job(meta, dir_name):
     Behaviour-identical to the per-field guard blocks this
     replaces: #1522 (container), #1513/#1523 (timestamps),
     #1548/#1554 (id), #1556 (state/interrupted), #1532 (the
-    ended_at transitions).
+    ended_at transitions), #1568 (exit/cwd/cmd, folded in as
+    table rows).
     """
     if not isinstance(meta, dict):
         return None, False, "meta.json is not a JSON object"
@@ -382,6 +386,27 @@ def _restore_persisted_job(meta, dir_name):
     if (_raw_interrupted is not None
             and not isinstance(_raw_interrupted, bool)):
         return None, False, "non-boolean interrupted in meta.json"
+    # Issue #1568, folded in as table rows per the fold-in rule at
+    # the table above: _write_meta only ever writes exit as an int
+    # returncode (negative for signal deaths) or None, and cwd/cmd
+    # as strings. Present values of any other shape were restored
+    # and served verbatim -- exit="0"/[0], cwd=123 and cmd={"x": 1}
+    # all reached job_public/job_summary and were re-persisted by
+    # _write_meta. Same skip contract as every other guarded
+    # field. bool is rejected for exit explicitly: it is an int
+    # subclass, but the writer never produces one. Missing/None
+    # keeps the established defaults (None / home / "").
+    _raw_exit = meta.get("exit")
+    if (_raw_exit is not None
+            and (isinstance(_raw_exit, bool)
+                 or not isinstance(_raw_exit, int))):
+        return None, False, "non-integer exit in meta.json"
+    if (meta.get("cwd") is not None
+            and not isinstance(meta.get("cwd"), str)):
+        return None, False, "non-string cwd in meta.json"
+    if (meta.get("cmd") is not None
+            and not isinstance(meta.get("cmd"), str)):
+        return None, False, "non-string cmd in meta.json"
     state = _raw_state or "done"
     exit_code = meta.get("exit")
     ended_at = meta.get("ended_at")
