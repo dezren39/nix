@@ -135,11 +135,13 @@ USER_SET=0
 FILTER_FLAG=""
 FOLLOW_YES_SET=0
 FOLLOW_NO_SET=0
+AUTO_SET=0
+PATH_SET=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --auto)           MODE="auto" ;;
-    --path)           { arg_require_value "$1" "${2:-}"; MODE="path"; PATHS+=("$2"); shift; } ;;
+    --auto)           { arg_conflict --auto --path "$PATH_SET"; MODE="auto"; AUTO_SET=1; } ;;
+    --path)           { arg_require_value "$1" "${2:-}"; arg_conflict --auto --path "$AUTO_SET"; MODE="path"; PATHS+=("$2"); PATH_SET=1; shift; } ;;
     --recursive|--walk)       DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1;  RECURSIVE_SET=1 ;;
     --depth)                  { arg_require_value "$1" "${2:-}"; arg_once "$1" DEPTH_SET; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
@@ -159,7 +161,7 @@ while [ $# -gt 0 ]; do
     --dry-run)        DRY_RUN=1 ;;
     -h|--help)        usage; exit 0 ;;
     -*)               echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *)                MODE="path"; PATHS+=("$1") ;;
+    *)                { arg_conflict --auto --path "$AUTO_SET"; MODE="path"; PATHS+=("$1"); PATH_SET=1; } ;;
   esac
   shift
 done
