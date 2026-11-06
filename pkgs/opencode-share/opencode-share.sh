@@ -327,11 +327,11 @@ do_status() {
     warn ".opencode is a symlink -> $link_target (not a bindfs mount)"
   elif is_mounted "$target_opencode"; then
     local mount_src
-    mount_src=$(mount | grep " on $target_opencode (" | awk '{print $1}')
+    mount_src=$(mount | grep -F " on $target_opencode (" | awk 'NR==1 {print $1}')
     log ".opencode: mounted (source: $mount_src)"
 
     if is_mounted "$target_opencode/plans"; then
-      mount_src=$(mount | grep " on $target_opencode/plans (" | awk '{print $1}')
+      mount_src=$(mount | grep -F " on $target_opencode/plans (" | awk 'NR==1 {print $1}')
       log "plans/:   mounted (source: $mount_src)"
     else
       warn "plans/:   NOT mounted (using shared plans from source)"

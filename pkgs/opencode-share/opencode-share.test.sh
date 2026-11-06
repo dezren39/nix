@@ -349,6 +349,32 @@ if [[ "$out_m" == *$'\033'* ]]; then
 fi
 [[ $failures -eq $start ]] && ok "M: color gate consults NO_COLOR and the tty; captured output is plain"
 
+
+# ─── Scenario N (#1559): --status source extraction is fixed-string ───────
+# do_status used a plain regex grep to extract the mount source, so a
+# sibling mount whose path differs from the target at a '.' position
+# (projXect vs proj.ect) matched the target's pattern and its source was
+# reported (newline-joined) as the target's source. This scenario drives
+# the REAL --status path with a stub `mount` listing the sibling FIRST.
+start=$failures
+STUB_BIN_N="$TMP_ROOT/stub-bin-n"; mkdir -p "$STUB_BIN_N"
+STATUS_TARGET="$TMP_ROOT/proj.ect"
+mkdir -p "$STATUS_TARGET/.opencode"
+write_bash_stub "$STUB_BIN_N/mount" <<'STUB'
+printf 'wrongsrce on %s (fuse, local)\n' "$STATUS_SIBLING/.opencode"
+printf 'rightsrc on %s (fuse, local)\n' "$STATUS_TARGET_DIR/.opencode"
+printf 'rightsrc on %s (fuse, local)\n' "$STATUS_TARGET_DIR/.opencode/plans"
+STUB
+chmod +x "$STUB_BIN_N/mount"
+out_n="$(STATUS_SIBLING="$TMP_ROOT/projXect" STATUS_TARGET_DIR="$STATUS_TARGET" PATH="$STUB_BIN_N:$PATH" bash "$SCRIPT" --status --source "$SRC" "$STATUS_TARGET" 2>&1)"; rc_n=$?
+[[ $rc_n -eq 0 ]] || fail "N: status expected exit 0, got $rc_n; output: $out_n"
+grep -qF ".opencode: mounted (source: rightsrc)" <<<"$out_n" || fail "N: --status did not report only the target's own source; output: $out_n"
+grep -qF "plans/:   mounted (source: rightsrc)" <<<"$out_n" || fail "N: plans --status did not report only the target's own source; output: $out_n"
+if grep -q "wrongsrce" <<<"$out_n"; then
+  fail "N: sibling mount source reported as the target's source (regression)"
+fi
+[[ $failures -eq $start ]] && ok "N: sibling mount differing at a '.' position listed first; --status reports only the target's own source"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1
