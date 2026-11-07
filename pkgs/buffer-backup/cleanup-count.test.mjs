@@ -548,4 +548,45 @@ for (const bad of [NaN, Infinity, -Infinity]) {
   console.log("pass: getConfig validates the backupDir string setting (#1580)");
 }
 
+// 20. getInterval never exceeds Node's timer ceiling (#1588, oracle:
+//     the 2,147,483,647 ms 32-bit signed timer limit): a cleanup
+//     interval of 2,592,000 s (30 days) used to multiply to
+//     2,592,000,000 ms, which Node clamps to a 1 ms setInterval loop.
+//     The extracted getInterval (same stub style as block 18) must
+//     return a finite delay within the ceiling for that input.
+{
+  let configValues = {};
+  const fakeVscode = {
+    workspace: {
+      getConfiguration: (section) => ({
+        get: (key, fallback) => {
+          const full = `${section}.${key}`;
+          return Object.prototype.hasOwnProperty.call(configValues, full)
+            ? configValues[full]
+            : fallback;
+        },
+      }),
+    },
+  };
+  const configFactory = new Function(
+    "vscode",
+    "DEFAULT_BACKUP_DIR",
+    `${stripTypes(extractFunction("finiteNumberOr"))}
+     ${stripTypes(extractFunction("nonEmptyStringOr"))}
+     ${stripTypes(extractFunction("durationToSeconds"))}
+     ${stripTypes(extractFunction("getDuration"))}
+     ${stripTypes(extractFunction("getInterval"))}
+     ${stripTypes(extractFunction("getConfig"))}
+     return { getConfig, getInterval };`,
+  );
+  const { getConfig, getInterval } = configFactory(fakeVscode, "/tmp/fallback-dir");
+  configValues = { "bufferBackup.ageCleanupIntervalSeconds": 2592000 };
+  const delay = getInterval("ageCleanupIntervalSeconds");
+  assert.ok(Number.isFinite(delay), `30-day interval delay must be finite, got ${delay}`);
+  assert.ok(delay <= 2147483647, `30-day interval delay ${delay} exceeds Node timer ceiling 2147483647`);
+  assert.strictEqual(delay, 2147483647, "30-day interval must clamp to the timer ceiling");
+  assert.strictEqual(getConfig().ageCleanupMs, 2147483647, "getConfig must carry the clamped interval");
+  console.log("pass: getInterval clamps a 30-day interval to the Node timer ceiling (#1588)");
+}
+
 console.log("cleanup-count.test.mjs: all assertions passed");
