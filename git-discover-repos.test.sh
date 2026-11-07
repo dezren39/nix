@@ -189,6 +189,28 @@ run --path "$VALID" --dry-run --repos-only
 [ "$STATUS" -eq 0 ] || fail "single --repos-only exited $STATUS (want 0)"
 echo "ok: single filter flag still accepted"
 
+# --- --bare-only with --no-bare is rejected at parse time (#1589) ----
+# --bare-only assigned FILTER through the shared filter guard, but
+# --no-bare was a bare INCLUDE_BARE=0 assignment with no record it was
+# given, so the contradictory pair silently resolved at runtime:
+# consider() dropped every bare repo under --no-bare before
+# --bare-only's filter ever saw one -- empty output at exit 0,
+# indistinguishable from "no bare repos here". Both orders must exit 2
+# naming both flags; each flag alone (and --no-bare repeated, which is
+# idempotent like the parser's other boolean flags) still parses.
+for pair in "--bare-only --no-bare" "--no-bare --bare-only"; do
+  # shellcheck disable=SC2086
+  run --path "$VALID" --dry-run $pair
+  [ "$STATUS" -eq 2 ] || fail "bare pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-discover-repos: --bare-only and --no-bare may not be combined"*) echo "ok: bare pair '$pair' rejected as a conflict" ;;
+    *) fail "bare pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --path "$VALID" --dry-run --no-bare --no-bare
+[ "$STATUS" -eq 0 ] || fail "repeated --no-bare exited $STATUS (want 0)"
+echo "ok: repeated --no-bare still accepted"
+
 # ─── --follow with --no-follow is rejected at parse time (#1120) ────
 # FOLLOW_SET was written but never read, so the pair silently resolved
 # by order. Both orders must exit 2; each flag alone still parses.
@@ -492,6 +514,9 @@ probe_rejected "may not be combined with" --path "$VALID" --dry-run --worktrees-
 probe_rejected "git-discover-repos: --auto and --path may not be combined" --path "$VALID" --auto
 probe_rejected "git-discover-repos: --auto and --path may not be combined" --auto --path "$VALID"
 probe_rejected "git-discover-repos: --auto and --path may not be combined" "$VALID" --auto
+probe_rejected "git-discover-repos: --bare-only and --no-bare may not be combined" --path "$VALID" --dry-run --bare-only --no-bare
+probe_rejected "git-discover-repos: --bare-only and --no-bare may not be combined" --path "$VALID" --dry-run --no-bare --bare-only
+probe_accepted --path "$VALID" --dry-run --no-bare --no-bare
 probe_accepted --auto --dry-run
 probe_accepted "$VALID" --dry-run
 for bad in abc 0 2147483648 99999999999999999999999999; do
