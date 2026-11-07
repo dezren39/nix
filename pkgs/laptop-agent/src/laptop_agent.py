@@ -254,7 +254,17 @@ def _write_meta(job):
             "started_at": job["started_at"], "ended_at": job["ended_at"],
             "exit": job["exit"], "state": job["state"],
             "interrupted": job.get("interrupted", False)}
-    d = job_dir(job["id"])
+    try:
+        d = job_dir(job["id"])
+    except (RuntimeError, ValueError) as e:
+        # A spool swapped for a symlink after load (#1575): job_dir()
+        # raises ValueError, which must stay contained here exactly as
+        # an OSError is -- job_state() calls this from both serializers,
+        # so a leak would poison every read of the job. One stderr line
+        # naming the job, as in the loader/reaper skip contract.
+        print(f"laptop-agent: cannot write meta for job "
+              f"{job['id']}: {e}", file=sys.stderr, flush=True)
+        return
     try:
         d.mkdir(parents=True, exist_ok=True)
         tmp = d / "meta.json.tmp"
@@ -491,21 +501,30 @@ def job_state(job):
 
 def job_public(job, out_off=0, err_off=0):
     state = job_state(job)
-    d = job_dir(job["id"])
+    try:
+        d = job_dir(job["id"])
+    except (RuntimeError, ValueError) as e:
+        # Post-load spool swap (#1575): serve the job's in-memory
+        # record with empty output instead of raising ValueError,
+        # which do_GET would turn into a 400 blaming the request.
+        print(f"laptop-agent: cannot read spool for job "
+              f"{job['id']}: {e}", file=sys.stderr, flush=True)
+        d = None
     out = b""
     err = b""
-    try:
-        with open(d / "stdout", "rb") as f:
-            f.seek(out_off)
-            out = f.read(MAX_OUT)
-    except OSError:
-        pass
-    try:
-        with open(d / "stderr", "rb") as f:
-            f.seek(err_off)
-            err = f.read(MAX_OUT)
-    except OSError:
-        pass
+    if d is not None:
+        try:
+            with open(d / "stdout", "rb") as f:
+                f.seek(out_off)
+                out = f.read(MAX_OUT)
+        except OSError:
+            pass
+        try:
+            with open(d / "stderr", "rb") as f:
+                f.seek(err_off)
+                err = f.read(MAX_OUT)
+        except OSError:
+            pass
     return {"job_id": job["id"], "state": state,
             "exit": job["exit"] if state == "done" else None,
             "cwd": job["cwd"], "cmd": job["cmd_repr"],
@@ -529,13 +548,21 @@ def job_summary(job):
     single-job route.
     """
     state = job_state(job)
-    d = job_dir(job["id"])
     try:
-        out_size = (d / "stdout").stat().st_size
+        d = job_dir(job["id"])
+    except (RuntimeError, ValueError) as e:
+        # Post-load spool swap (#1575): one poisoned spool must not
+        # fail the whole GET /jobs list -- report zero sizes for this
+        # job (same shape as a missing spool file) and serve the rest.
+        print(f"laptop-agent: cannot read spool for job "
+              f"{job['id']}: {e}", file=sys.stderr, flush=True)
+        d = None
+    try:
+        out_size = (d / "stdout").stat().st_size if d else 0
     except OSError:
         out_size = 0
     try:
-        err_size = (d / "stderr").stat().st_size
+        err_size = (d / "stderr").stat().st_size if d else 0
     except OSError:
         err_size = 0
     return {"job_id": job["id"], "state": state,

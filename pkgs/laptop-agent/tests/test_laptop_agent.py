@@ -1233,6 +1233,62 @@ class PersistedJobTimestampTest(unittest.TestCase):
             self.assertEqual(len(lines), 1, err.getvalue())
             self.assertIn("badjob", lines[0])
 
+    def test_read_paths_degrade_per_job_on_unsafe_spool(self):
+        # Issue #1575: job_public()/job_summary() called job_dir()
+        # unguarded and _write_meta() called it outside its OSError
+        # guard -- one spool replaced by a symlink after load made
+        # GET /jobs answer 400 for every job. Oracle: the serializers
+        # degrade per-job (poisoned job serves its in-memory record
+        # with empty output/zero sizes, one stderr line naming it),
+        # the healthy job reads normally, and _write_meta via
+        # job_state() cannot leak ValueError.
+        la = self._import_agent()
+        with tempfile.TemporaryDirectory() as state_dir:
+            state = Path(state_dir)
+            jobs_root = state / "jobs"
+            jobs_root.mkdir(parents=True)
+            outside = state / "outside"
+            outside.mkdir()
+            (jobs_root / "badjob").symlink_to(outside,
+                                              target_is_directory=True)
+            (jobs_root / "runbad").symlink_to(outside,
+                                              target_is_directory=True)
+            healthy = jobs_root / "goodjob"
+            healthy.mkdir()
+            (healthy / "stdout").write_bytes(b"hi")
+            (healthy / "stderr").write_bytes(b"")
+            now = time.time()
+            for job_id, st in (("badjob", "done"), ("goodjob", "done"),
+                               ("runbad", "running")):
+                la.JOBS[job_id] = {
+                    "id": job_id, "proc": None, "cwd": "/",
+                    "cmd_repr": "test", "started_at": now - 10,
+                    "ended_at": now if st == "done" else None,
+                    "exit": 0 if st == "done" else None, "state": st,
+                    "interrupted": False, "_files": ()}
+            err = io.StringIO()
+            with patch.object(la, "STATE_DIR", state):
+                with contextlib.redirect_stderr(err):
+                    summaries = [la.job_summary(j)
+                                 for j in la.JOBS.values()
+                                 if j["state"] == "done"]
+                    public_bad = la.job_public(la.JOBS["badjob"])
+                    public_good = la.job_public(la.JOBS["goodjob"])
+                    # job_state on a running job calls _write_meta.
+                    self.assertEqual(la.job_state(la.JOBS["runbad"]),
+                                     "done")
+            by_id = {x["job_id"]: x for x in summaries}
+            self.assertEqual(by_id["goodjob"]["out_bytes"], 2)
+            self.assertEqual(by_id["badjob"]["out_bytes"], 0)
+            self.assertEqual(by_id["badjob"]["err_bytes"], 0)
+            self.assertEqual(public_bad["stdout"], "")
+            self.assertEqual(public_bad["state"], "done")
+            self.assertEqual(public_good["stdout"], "hi")
+            lines = [ln for ln in err.getvalue().splitlines()
+                     if ln.strip()]
+            self.assertTrue(any("badjob" in ln for ln in lines),
+                            err.getvalue())
+
 class PersistedJobRestoreContractTest(unittest.TestCase):
     """Issue #1579 (design #1578 phase 1): the contract probe matrix
     for the one restore validator, generated from the field table.
