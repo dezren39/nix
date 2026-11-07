@@ -1509,6 +1509,13 @@ mark_dir() {
   # App static trees may be committed or feed flat-static manifests. Never add
   # an untracked Spotlight marker to them.
   [ "${d##*/}" = "static" ] && return 0
+  # A symlinked marker is never followed (#1586): warn distinctly and
+  # skip -- the [ -e ] check below would count a live symlink as
+  # already present, and spotlight_mark would refuse it anyway.
+  if [ -L "$d/$SPOTLIGHT_MARKER" ]; then
+    echo "  warning: cannot write $d/$SPOTLIGHT_MARKER (symlink; not followed)" >&2
+    return 0
+  fi
   [ -e "$d/$SPOTLIGHT_MARKER" ] && return 0
   if [ "$DRY_RUN" = "1" ]; then echo "  would mark: ${d/#$HOME/\~}"; MARKED=$((MARKED + 1)); return 0; fi
   spotlight_mark "$d" "$CALLER_USER" && MARKED=$((MARKED + 1))

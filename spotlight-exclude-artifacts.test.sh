@@ -292,5 +292,72 @@ case "$OUT" in
 esac
 [ -e "$SYS_HOME/.bun/$MARKER" ] && echo "ok: system failing run still marked the clean path" || fail "system failing run did not mark the clean .bun path (early abort?)"
 
+
+# ─── Symlinked markers are never followed (#1586) ─────────────────
+# A marker path that is itself a symlink must not be followed: no file
+# is created/updated outside the directory being marked, and the
+# directory counts as failed -- never as marked or already present.
+# Variant 1: dangling symlink whose target parent exists and is
+# writable (touch would succeed outside the tree -- the case #1333's
+# nonexistent-parent fixture cannot reach). Variant 2: live symlink
+# to a real file ([ -e ] follows it, so the old code counted the
+# directory as already present and left it unmarked).
+LINKFAIL="$TMP_ROOT/linkfail"
+OUTSIDE="$TMP_ROOT/outside"
+mkdir -p "$LINKFAIL/repo1/.git" "$LINKFAIL/repo2/.git" "$OUTSIDE"
+ln -s "$OUTSIDE/dangling-target" "$LINKFAIL/repo1/.git/$MARKER"
+run --no-system --path "$LINKFAIL" --depth 2
+[ "$STATUS" -eq 1 ] || fail "dangling-symlink run exited $STATUS (want 1)"
+case "$ERR" in
+  *"cannot write $LINKFAIL/repo1/.git/$MARKER (symlink; not followed)"*) echo "ok: dangling symlink named on stderr" ;;
+  *) fail "dangling symlink not named on stderr (got: $ERR)" ;;
+esac
+case "$OUT" in
+  *"1 failed"*) echo "ok: dangling symlink counted as failed" ;;
+  *) fail "dangling symlink not counted as failed (got: $OUT)" ;;
+esac
+[ ! -e "$OUTSIDE/dangling-target" ] && echo "ok: dangling symlink target was not created outside the tree" || fail "dangling symlink target WAS created outside the tree"
+[ -L "$LINKFAIL/repo1/.git/$MARKER" ] && echo "ok: dangling marker is still just the symlink" || fail "dangling marker was replaced"
+[ -e "$LINKFAIL/repo2/.git/$MARKER" ] && echo "ok: symlink run still marked the clean repo" || fail "symlink run did not mark the clean repo (early abort?)"
+
+LIVEFAIL="$TMP_ROOT/livefail"
+mkdir -p "$LIVEFAIL/repo1/.git"
+printf 'precious\n' > "$OUTSIDE/live-target"
+ln -s "$OUTSIDE/live-target" "$LIVEFAIL/repo1/.git/$MARKER"
+run --no-system --path "$LIVEFAIL" --depth 2
+[ "$STATUS" -eq 1 ] || fail "live-symlink run exited $STATUS (want 1)"
+case "$ERR" in
+  *"cannot write $LIVEFAIL/repo1/.git/$MARKER (symlink; not followed)"*) echo "ok: live symlink named on stderr" ;;
+  *) fail "live symlink not named on stderr (got: $ERR)" ;;
+esac
+case "$OUT" in
+  *"0 marked, 0 already"*) echo "ok: live symlink counted as neither marked nor already present" ;;
+  *) fail "live symlink miscounted (got: $OUT)" ;;
+esac
+case "$OUT" in
+  *"1 failed"*) echo "ok: live symlink counted as failed" ;;
+  *) fail "live symlink not counted as failed (got: $OUT)" ;;
+esac
+[ "$(cat "$OUTSIDE/live-target")" = "precious" ] && echo "ok: live symlink target untouched" || fail "live symlink target was modified"
+
+# spotlight_mark (lib/common.sh) directly: same two variants, oracle is
+# return 2 + warning + no outside write (clean.sh's mark_dir delegates
+# here, and its own pre-check carries the same -L guard).
+(
+  # shellcheck source=lib/common.sh
+  . "$SELF_DIR/lib/common.sh"
+  d1="$TMP_ROOT/markfn-dangling"; mkdir -p "$d1"
+  ln -s "$OUTSIDE/fn-dangling-target" "$d1/$MARKER"
+  spotlight_mark "$d1" 2>"$TMP_ROOT/markfn.err"; rc=$?
+  [ "$rc" -eq 2 ] || { echo "FAIL: spotlight_mark dangling symlink returned $rc (want 2)" >&2; exit 1; }
+  grep -q "symlink; not followed" "$TMP_ROOT/markfn.err" || { echo "FAIL: spotlight_mark dangling symlink gave no warning" >&2; exit 1; }
+  [ ! -e "$OUTSIDE/fn-dangling-target" ] || { echo "FAIL: spotlight_mark created the dangling target outside" >&2; exit 1; }
+  d2="$TMP_ROOT/markfn-live"; mkdir -p "$d2"
+  ln -s "$OUTSIDE/live-target" "$d2/$MARKER"
+  spotlight_mark "$d2" 2>"$TMP_ROOT/markfn2.err"; rc=$?
+  [ "$rc" -eq 2 ] || { echo "FAIL: spotlight_mark live symlink returned $rc (want 2, not 1=already present)" >&2; exit 1; }
+  echo "ok: spotlight_mark refuses both symlink variants with return 2"
+) || fail "spotlight_mark symlink probe failed (see stderr above)"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all spotlight-exclude-artifacts flag-shaped-value checks passed"
