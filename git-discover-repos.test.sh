@@ -429,6 +429,34 @@ case "$OUT" in *"repo"$'\t'"$SUBM_CANON/super/sub"*) echo "ok: --follow lists th
 case "$OUT" in *".git/modules"*) fail "--follow emitted a record inside .git/modules (got: $OUT)" ;; *) echo "ok: --follow emits no record inside .git" ;; esac
 case "$OUT" in *"worktree"*) fail "--follow labelled the submodule a worktree (got: $OUT)" ;; *) echo "ok: --follow emits no worktree record for the submodule" ;; esac
 
+# ─── Repositories nested inside .git stay discoverable (#1598) ───────
+# A .git directory has the same HEAD/objects/refs shape as a bare repo.
+# It must not be pruned by the bare-repo branch, because repositories can
+# be nested inside it and the later -name .git branch only prints the marker.
+NESTED_GIT_SCAN="$TMP_ROOT/nested-git-scan"
+NESTED_MAIN="$NESTED_GIT_SCAN/main"
+NESTED_INNER="$NESTED_MAIN/.git/inner"
+NESTED_BARE="$NESTED_GIT_SCAN/other.git"
+mkdir -p "$NESTED_MAIN"
+git init -q "$NESTED_MAIN"
+git init -q "$NESTED_INNER"
+git init --bare -q "$NESTED_BARE"
+NESTED_GIT_SCAN_CANON="$(cd "$NESTED_GIT_SCAN" && pwd -P)"
+NESTED_MAIN_CANON="$NESTED_GIT_SCAN_CANON/main"
+NESTED_INNER_CANON="$NESTED_MAIN_CANON/.git/inner"
+NESTED_BARE_CANON="$NESTED_GIT_SCAN_CANON/other.git"
+
+run --path "$NESTED_GIT_SCAN"
+[ "$STATUS" -eq 0 ] || fail "nested-inside-.git scan exited $STATUS (#1598)"
+case "$OUT" in *$'repo\t'"$NESTED_MAIN_CANON"*) echo "ok: nested .git scan still lists the outer repo" ;; *) fail "nested .git scan missed the outer repo (got: $OUT)" ;; esac
+case "$OUT" in *$'repo\t'"$NESTED_INNER_CANON"*) echo "ok: nested .git scan lists the repo inside .git (#1598)" ;; *) fail "nested .git scan missed the inner repo (got: $OUT)" ;; esac
+case "$OUT" in *$'repo\t'"$NESTED_BARE_CANON"*) echo "ok: nested .git scan still lists the genuine bare repo" ;; *) fail "nested .git scan missed the genuine bare repo (got: $OUT)" ;; esac
+nested_inner_count="$(printf '%s\n' "$OUT" | grep -Fxc $'repo\t'"$NESTED_INNER_CANON" || true)"
+[ "$nested_inner_count" -eq 1 ] || fail "nested-inside-.git repo emitted $nested_inner_count times (want 1)"
+nested_bare_count="$(printf '%s\n' "$OUT" | grep -Fxc $'repo\t'"$NESTED_BARE_CANON" || true)"
+[ "$nested_bare_count" -eq 1 ] || fail "genuine bare repo emitted $nested_bare_count times (want 1)"
+case "$OUT" in *"$NESTED_BARE_CANON/objects"*) fail "nested .git scan descended into the genuine bare repo object store (got: $OUT)" ;; *) echo "ok: nested .git scan still prunes the bare object store" ;; esac
+
 # ─── Nested bare repositories are found and pruned (#1587) ──────────
 # Bare repositories have no .git marker: the repository directory itself
 # has HEAD, objects/, and refs/. The scan must report that directory and
