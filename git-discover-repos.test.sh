@@ -407,6 +407,72 @@ case "$OUT" in *"repo"$'\t'"$SUBM_CANON/super/sub"*) echo "ok: --follow lists th
 case "$OUT" in *".git/modules"*) fail "--follow emitted a record inside .git/modules (got: $OUT)" ;; *) echo "ok: --follow emits no record inside .git" ;; esac
 case "$OUT" in *"worktree"*) fail "--follow labelled the submodule a worktree (got: $OUT)" ;; *) echo "ok: --follow emits no worktree record for the submodule" ;; esac
 
+# ─── Nested bare repositories are found and pruned (#1587) ──────────
+# Bare repositories have no .git marker: the repository directory itself
+# has HEAD, objects/, and refs/. The scan must report that directory and
+# prune it before walking the object store.
+BARE_SCAN="$TMP_ROOT/bare-scan"
+BARE_REPO="$BARE_SCAN/bare.git"
+NORMAL_REPO="$BARE_SCAN/normal"
+DEEP_BARE="$BARE_SCAN/nested/deep.git"
+DECOY="$BARE_SCAN/not-bare"
+mkdir -p "$NORMAL_REPO/.git" "$BARE_SCAN/nested" "$DECOY"
+git init --bare -q "$BARE_REPO"
+git init --bare -q "$DEEP_BARE"
+# A repo-shaped marker inside the object store must not become a result.
+mkdir -p "$BARE_REPO/objects/probe/.git"
+# Names alone are not enough: objects/ and refs/ must be directories.
+printf 'not a bare repo\n' > "$DECOY/HEAD"
+printf 'not a directory\n' > "$DECOY/objects"
+printf 'not a directory\n' > "$DECOY/refs"
+BARE_SCAN_CANON="$(cd "$BARE_SCAN" && pwd -P)"
+BARE_REPO_CANON="$BARE_SCAN_CANON/bare.git"
+NORMAL_REPO_CANON="$BARE_SCAN_CANON/normal"
+DEEP_BARE_CANON="$BARE_SCAN_CANON/nested/deep.git"
+
+run --path "$BARE_SCAN"
+[ "$STATUS" -eq 0 ] || fail "nested-bare plain scan exited $STATUS (#1587)"
+case "$OUT" in *$'repo\t'"$BARE_REPO_CANON"*) echo "ok: plain scan lists the nested bare repo (#1587)" ;; *) fail "plain scan missed the nested bare repo (got: $OUT)" ;; esac
+case "$OUT" in *$'repo\t'"$NORMAL_REPO_CANON"*) echo "ok: plain scan still lists a normal repo beside the bare repo" ;; *) fail "plain scan missed the normal repo (got: $OUT)" ;; esac
+case "$OUT" in *"$BARE_REPO_CANON/objects/probe"*) fail "plain scan descended into the bare repo object store (got: $OUT)" ;; *) echo "ok: plain scan prunes the bare repo object store" ;; esac
+case "$OUT" in *"$DECOY"*) fail "plain scan mistook marker names without the bare-repo shape (got: $OUT)" ;; *) echo "ok: marker names without the bare-repo shape are ignored" ;; esac
+bare_record_count="$(printf '%s\n' "$OUT" | grep -Fxc $'repo\t'"$BARE_REPO_CANON" || true)"
+[ "$bare_record_count" -eq 1 ] || fail "plain scan emitted the direct bare repo $bare_record_count times (want 1)"
+
+run --path "$BARE_SCAN" --bare-only
+[ "$STATUS" -eq 0 ] || fail "nested-bare --bare-only scan exited $STATUS (#1587)"
+expected_bare_only="$(printf 'repo\t%s\nrepo\t%s' "$BARE_REPO_CANON" "$DEEP_BARE_CANON")"
+[ "$OUT" = "$expected_bare_only" ] || fail "--bare-only did not list exactly the two nested bare repos (got: $OUT)"
+
+run --path "$BARE_SCAN" --no-bare
+[ "$STATUS" -eq 0 ] || fail "nested-bare --no-bare scan exited $STATUS (#1587)"
+[ "$OUT" = $'repo\t'"$NORMAL_REPO_CANON" ] || fail "--no-bare did not list only the normal repo (got: $OUT)"
+
+run --path "$BARE_SCAN" --depth 1 --bare-only
+[ "$STATUS" -eq 0 ] || fail "nested-bare --depth 1 scan exited $STATUS (#1587)"
+[ "$OUT" = $'repo\t'"$BARE_REPO_CANON" ] || fail "--depth 1 did not limit discovery to the direct-child bare repo (got: $OUT)"
+run --path "$BARE_SCAN" --depth 2 --bare-only
+[ "$STATUS" -eq 0 ] || fail "nested-bare --depth 2 scan exited $STATUS (#1587)"
+[ "$OUT" = "$expected_bare_only" ] || fail "--depth 2 did not include the deeper bare repo (got: $OUT)"
+
+# A bare repo that is also an explicit seed and a --follow target is emitted
+# once, just like a nested bare repo reached by the recursive scan.
+run --path "$BARE_REPO" --path "$BARE_REPO" --follow --bare-only
+[ "$STATUS" -eq 0 ] || fail "direct bare-repo --follow control exited $STATUS (#1587)"
+bare_record_count="$(printf '%s\n' "$OUT" | grep -Fxc $'repo\t'"$BARE_REPO_CANON" || true)"
+[ "$bare_record_count" -eq 1 ] || fail "direct/follow bare repo emitted $bare_record_count times (want 1; got: $OUT)"
+
+run --path "$BARE_REPO"
+[ "$STATUS" -eq 0 ] || fail "direct --path bare control exited $STATUS (#1587)"
+[ "$OUT" = $'repo\t'"$BARE_REPO_CANON" ] || fail "direct --path bare output changed (got: $OUT)"
+run --path "$BARE_REPO" --bare-only
+[ "$STATUS" -eq 0 ] || fail "direct --path bare --bare-only control exited $STATUS (#1587)"
+[ "$OUT" = $'repo\t'"$BARE_REPO_CANON" ] || fail "direct --path bare --bare-only changed (got: $OUT)"
+run --path "$BARE_REPO" --no-bare
+[ "$STATUS" -eq 0 ] || fail "direct --path bare --no-bare control exited $STATUS (#1587)"
+[ -z "$OUT" ] || fail "direct --path bare --no-bare printed a result (got: $OUT)"
+echo "ok: nested and direct bare-repository discovery filters and pruning (#1587)"
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for git-discover-repos, driven through
 # lib/arg-probe.sh (the same helper every discovery suite uses):
