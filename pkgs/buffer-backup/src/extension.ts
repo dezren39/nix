@@ -197,7 +197,10 @@ function getConfig(): Config {
     rolloutMb: finiteNumberOr(c.get("rolloutMb", 0), 0),
     maxFileCount: finiteNumberOr(c.get("maxFileCount", 0), 0),
     rolloutFileCount: finiteNumberOr(c.get("rolloutFileCount", 0), 0),
-    debounceMs: finiteNumberOr(c.get("debounceMs", 3000), 3000),
+    // Clamp to the timer-safe range [0, 2^31-1] (#1594): Node
+    // collapses a negative or overflowing setTimeout delay to
+    // ~1 ms, which would defeat the debounce entirely.
+    debounceMs: Math.min(Math.max(0, finiteNumberOr(c.get("debounceMs", 3000), 3000)), 2147483647),
     ageCleanupMs: getInterval("ageCleanupIntervalSeconds"),
     sizeCleanupMs: getInterval("sizeCleanupIntervalSeconds"),
     countCleanupMs: getInterval("countCleanupIntervalSeconds"),
