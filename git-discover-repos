@@ -97,7 +97,10 @@ FINDING ARTIFACTS TOO
 OTHER
   --user USER         Scan USER's home instead of the caller's (needs root).
   --print0            NUL-separate records instead of newline.
-  --count             Print only a summary count.
+  --count             Print only a summary count, of the records the
+                      chosen filter would print. May not be combined
+                      with --find (the sweep's FOUND records are not
+                      counted; the pair is rejected at parse time).
   --dry-run           Describe the plan, discover nothing.
   -h, --help          This help
 
@@ -155,11 +158,11 @@ while [ $# -gt 0 ]; do
     --bare-only)      { arg_conflict --bare-only --no-bare "$NO_BARE_SET"; [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="bare"; FILTER_FLAG="$1"; BARE_ONLY_SET=1; } ;;
     --paths-only)     PATHS_ONLY=1 ;;
     --no-bare)        { arg_conflict --bare-only --no-bare "$BARE_ONLY_SET"; INCLUDE_BARE=0; NO_BARE_SET=1; } ;;
-    --find)           { arg_require_value "$1" "${2:-}"; arg_once "$1" FIND_SET; FIND_SPEC="$2"; shift; } ;;
+    --find)           { arg_require_value "$1" "${2:-}"; arg_conflict --count --find "$COUNT_ONLY"; arg_once "$1" FIND_SET; FIND_SPEC="$2"; shift; } ;;
     --status)         WANT_STATUS=1 ;;
     --user)           { arg_require_value "$1" "${2:-}"; arg_once "$1" USER_SET; TARGET_USER="$2"; shift; } ;;
     --print0)         PRINT0=1 ;;
-    --count)          COUNT_ONLY=1 ;;
+    --count)          { arg_conflict --count --find "$FIND_SET"; COUNT_ONLY=1; } ;;
     --dry-run)        DRY_RUN=1 ;;
     -h|--help)        usage; exit 0 ;;
     -*)               echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -540,8 +543,14 @@ filter_out() {
 }
 
 if [ "$COUNT_ONLY" = "1" ]; then
-  r=$(awk -F'\t' '$1=="repo"' "$OUT_FILE" | wc -l | tr -d ' ')
-  w=$(awk -F'\t' '$1=="worktree"' "$OUT_FILE" | wc -l | tr -d ' ')
+  # Count exactly the records this invocation would print without
+  # --count: the same sort -u | filter_out pipeline as the emit path
+  # below, so a record filter (--repos-only/--worktrees-only/--bare-only)
+  # narrows the counts too (#1590). Previously this branch counted the
+  # raw unfiltered OUT_FILE.
+  counts=$(sort -u "$OUT_FILE" | filter_out | awk -F'\t' '$1=="repo" { r++ } $1=="worktree" { w++ } END { printf "%d %d", r, w }')
+  r=${counts% *}
+  w=${counts#* }
   echo "repos=$r worktrees=$w total=$((r + w))"
   if [ "$SEED_STATUS" -ne 0 ]; then
     exit "$SEED_STATUS"

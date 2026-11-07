@@ -495,6 +495,67 @@ run --path "$BARE_REPO" --no-bare
 [ -z "$OUT" ] || fail "direct --path bare --no-bare printed a result (got: $OUT)"
 echo "ok: nested and direct bare-repository discovery filters and pruning (#1587)"
 
+# ─── --count respects the record filter; --count + --find rejected (#1590) ───
+# The --count branch used to count the raw unfiltered OUT_FILE and exit
+# before the --find sweep, so --repos-only/--worktrees-only/--bare-only
+# counts reported the unfiltered totals and --find trash --count silently
+# dropped the sweep at exit 0. The contract pinned here: --count counts
+# exactly the records the same invocation would print without --count,
+# and --count combined with --find is rejected at parse time (exit 2,
+# both flags named, house arg_conflict style, including under --dry-run).
+# This section needs real repositories (a linked worktree and a bare
+# repo), like the --follow section above.
+COUNT_SCAN="$TMP_ROOT/count-scan"
+mkdir -p "$COUNT_SCAN"
+count_git="$(command -v git)"
+"$count_git" init -q "$COUNT_SCAN/mainrepo"
+printf 'x\n' > "$COUNT_SCAN/mainrepo/file"
+"$count_git" -C "$COUNT_SCAN/mainrepo" add file
+"$count_git" -C "$COUNT_SCAN/mainrepo" -c user.name=Test -c user.email=test@example.com commit -qm init
+"$count_git" -C "$COUNT_SCAN/mainrepo" worktree add -q "$COUNT_SCAN/wt1"
+"$count_git" init --bare -q "$COUNT_SCAN/bare.git"
+mkdir -p "$COUNT_SCAN/mainrepo/.trash"
+
+run --path "$COUNT_SCAN" --count
+[ "$STATUS" -eq 0 ] || fail "--count plain exited $STATUS (#1590)"
+[ "$OUT" = "repos=2 worktrees=1 total=3" ] || fail "plain --count changed (got: $OUT) (#1590)"
+echo "ok: plain --count unchanged (repos=2 worktrees=1 total=3)"
+
+run --path "$COUNT_SCAN" --repos-only --count
+[ "$OUT" = "repos=2 worktrees=0 total=2" ] || fail "--repos-only --count did not exclude the worktree (got: $OUT) (#1590)"
+echo "ok: --repos-only --count counts only repos"
+
+run --path "$COUNT_SCAN" --worktrees-only --count
+[ "$OUT" = "repos=0 worktrees=1 total=1" ] || fail "--worktrees-only --count did not exclude the repos (got: $OUT) (#1590)"
+echo "ok: --worktrees-only --count counts only worktrees"
+
+run --path "$COUNT_SCAN" --both --count
+[ "$OUT" = "repos=2 worktrees=1 total=3" ] || fail "--both --count changed (got: $OUT) (#1590)"
+echo "ok: --both --count matches the plain count"
+
+run --path "$COUNT_SCAN" --bare-only --count
+[ "$OUT" = "repos=1 worktrees=0 total=1" ] || fail "--bare-only --count did not count only the bare repo (got: $OUT) (#1590)"
+echo "ok: --bare-only --count counts only bare repos"
+
+run --path "$COUNT_SCAN/mainrepo" --bare-only --count
+[ "$OUT" = "repos=0 worktrees=0 total=0" ] || fail "--bare-only --count over a non-bare repo did not total 0 (got: $OUT) (#1590)"
+echo "ok: --bare-only --count over a non-bare repo totals 0"
+
+for pair in "--find trash --count" "--count --find trash" "--dry-run --find trash --count" "--dry-run --count --find trash"; do
+  # shellcheck disable=SC2086
+  run --path "$COUNT_SCAN" $pair
+  [ "$STATUS" -eq 2 ] || fail "--count/--find pair '$pair' exited $STATUS (want 2) (#1590)"
+  case "$ERR" in
+    *"git-discover-repos: --count and --find may not be combined"*) echo "ok: pair '$pair' rejected as a conflict" ;;
+    *) fail "pair '$pair' was not named as a conflict on stderr (got: $ERR) (#1590)" ;;
+  esac
+  [ -z "$OUT" ] || fail "pair '$pair' printed stdout: $OUT (#1590)"
+done
+
+run --path "$COUNT_SCAN" --find trash
+[ "$STATUS" -eq 0 ] || fail "--find trash alone exited $STATUS (#1590)"
+case "$OUT" in *"FOUND"$'\t'"trash"*) echo "ok: --find alone still emits FOUND records" ;; *) fail "--find alone lost its FOUND record (got: $OUT) (#1590)" ;; esac
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for git-discover-repos, driven through
 # lib/arg-probe.sh (the same helper every discovery suite uses):
@@ -522,6 +583,8 @@ probe_accepted "$VALID" --dry-run
 for bad in abc 0 2147483648 99999999999999999999999999; do
   probe_rejected "git-discover-repos: --depth must be a positive integer" --path "$VALID" --dry-run --depth "$bad"
 done
+probe_rejected "git-discover-repos: --count and --find may not be combined" --path "$VALID" --dry-run --count --find trash
+probe_rejected "git-discover-repos: --count and --find may not be combined" --path "$VALID" --dry-run --find trash --count
 probe_accepted --path "$VALID" --dry-run --depth 08
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
