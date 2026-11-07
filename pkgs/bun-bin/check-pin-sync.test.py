@@ -25,6 +25,10 @@ job branches on. These probes pin the new contract:
   Path("") is Path("."), so it used to silently check the cwd.
 - The old signals are unchanged: 0 = in sync, 1 = out of sync with
   both pins named, and a repeated --repo-root exits 2 with usage.
+- The workflow pin's YAML scalar form does not change its value
+  (#1600): single-quoted, unquoted and comment-trailing spellings of
+  the same version exit 0, and a drifted value in those forms exits
+  1 naming the bare version, without quotes.
 
 Run: python3 check-pin-sync.test.py  (exit 0 = all probes passed)
 """
@@ -80,11 +84,14 @@ def write_bytes(path, data):
 
 
 def seed_root(dirpath, workflow_version="1.3.14", hashes_version="1.3.14",
-              with_workflow=True, with_hashes=True, hashes_text=None):
+              with_workflow=True, with_hashes=True, hashes_text=None,
+              workflow_line=None):
     if with_workflow:
         write(
             os.path.join(dirpath, WORKFLOW),
-            f'        bun-version: "{workflow_version}"\n',
+            workflow_line
+            if workflow_line is not None
+            else f'        bun-version: "{workflow_version}"\n',
         )
     if with_hashes:
         write(
@@ -223,6 +230,41 @@ def main():
             and "bun pins out of sync" in result.stderr
             and "1.3.14" in result.stderr
             and "9.9.9" in result.stderr,
+            f"(rc={result.returncode}, stderr={result.stderr!r})",
+        )
+
+        # YAML scalar forms (#1600): a single-quoted, unquoted or
+        # comment-trailing spelling of the same pin is the same
+        # version to YAML (and to setup-bun), so each must read as
+        # in sync -- the old pattern captured the single quotes as
+        # part of the version (false drift) and did not match a
+        # trailing comment at all (false could-not-read).
+        for name, line in (
+            ("single-quoted", "        bun-version: '1.3.14'\n"),
+            ("unquoted", "        bun-version: 1.3.14\n"),
+            ("comment", '        bun-version: "1.3.14" # pinned for regen\n'),
+            ("single-quoted-comment", "        bun-version: '1.3.14' # pinned\n"),
+        ):
+            d = os.path.join(tmp, f"form-{name}")
+            seed_root(d, workflow_line=line)
+            result = run("--repo-root", d)
+            check(
+                f"workflow pin form ({name}) exits 0",
+                result.returncode == 0 and "bun pins in sync" in result.stdout,
+                f"(rc={result.returncode}, stdout={result.stdout!r}, "
+                f"stderr={result.stderr!r})",
+            )
+
+        # A drifted value in a non-double-quoted form still exits 1,
+        # naming the bare extracted version -- no quote characters.
+        drift_forms = os.path.join(tmp, "form-drift")
+        seed_root(drift_forms, workflow_line="        bun-version: '9.9.9'\n")
+        result = run("--repo-root", drift_forms)
+        check(
+            "single-quoted drift exits 1 naming the bare version",
+            result.returncode == 1
+            and "bun-version is 9.9.9" in result.stderr
+            and "'9.9.9'" not in result.stderr,
             f"(rc={result.returncode}, stderr={result.stderr!r})",
         )
 
