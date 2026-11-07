@@ -88,8 +88,7 @@ flake.nix → ./configuration.nix
   `npm-mcp-servers`, `opencode-share`, `symlinker`.
 - **checks:** `formatting` (treefmt), `tidy` (flake-tidy `--check`),
   `flake-tidy-tests` (the flake-tidy pytest suite), `plugins-tests`
-  (plugins/*.test.mjs), `opencode-db-pids-tests` and `skill-tests`
-  (archive/skills/*/SKILL.test.ts) on every supported system; the Sidepulse
+  (plugins/*.test.mjs), `opencode-db-pids-tests` on every supported system; the Sidepulse
   package build/test and setup smoke test run on Darwin only.
 - **apps:** `flake-tidy`, `mcpx`, `opencode`, `openchamber`, `opencode-share`,
   `symlinker`, `adopt`; Sidepulse apps are Darwin-only.
