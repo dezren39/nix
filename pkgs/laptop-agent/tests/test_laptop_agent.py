@@ -596,6 +596,33 @@ class MalformedRequestTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["ok"])
 
+    def test_oversized_content_length_rejected_before_reading_body(self):
+        conn = self._conn()
+        conn.putrequest("POST", "/exec")
+        conn.putheader("X-Agent-Token", self.token)
+        conn.putheader("Content-Type", "application/json")
+        conn.putheader("Content-Length", str((1 << 20) + 1))
+        # A partial body must not make the handler wait for the declared size.
+        conn.endheaders(b"{}")
+        r = conn.getresponse()
+        body = json.loads(r.read())
+        self.assertEqual(r.status, 400, body)
+        self.assertEqual(body["error"], "request body too large")
+        self.assertEqual(r.getheader("Connection"), "close")
+        conn.close()
+        status, body = self._call("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
+    def test_content_length_at_max_body_is_accepted(self):
+        body = {"cmds": [{"cwd": os.getcwd(),
+                          "argv": [sys.executable, "-c", "pass"]}]}
+        raw = json.dumps(body).encode()
+        raw += b" " * ((1 << 20) - len(raw))
+        status, result = self._call("POST", "/exec", raw=raw)
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["results"][0]["exit"], 0)
+
     def test_exec_timeout_not_an_integer(self):
         self._assert_400_then_health(
             "POST", "/exec",

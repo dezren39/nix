@@ -72,6 +72,7 @@ TOKEN_FILE = Path(os.environ.get(
 STATE_DIR = Path(os.environ.get(
     "LAPTOP_AGENT_STATE", Path.home() / ".local/state/laptop-agent"))
 MAX_OUT = 1 << 20            # per-stream capture cap for /exec (tail kept)
+MAX_BODY = 1 << 20           # request body cap for /exec and /jobs
 EXEC_TIMEOUT_DEFAULT = 120
 EXEC_TIMEOUT_MAX = 600
 JOB_TTL_S = 24 * 3600
@@ -637,6 +638,8 @@ class Handler(BaseHTTPRequestHandler):
             raise FramingError("invalid Content-Length header")
         if n < 0:
             raise FramingError("invalid Content-Length header")
+        if n > MAX_BODY:
+            raise FramingError("request body too large")
         raw = self.rfile.read(n) if n else b"{}"
         try:
             body = json.loads(raw or b"{}")
