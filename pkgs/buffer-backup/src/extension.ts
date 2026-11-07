@@ -169,7 +169,10 @@ function getInterval(key: string): number {
   if (typeof v !== "number" || !Number.isFinite(v) || v === 0) {
     return 5000;
   }
-  return Math.max(1, v) * 1000;
+  // Clamp to Node's 32-bit timer ceiling (#1588): a delay above
+  // 2,147,483,647 ms is clamped by Node itself to 1 ms, so a
+  // ~25-day-or-longer interval would become a 1 ms cleanup loop.
+  return Math.min(Math.max(1, v) * 1000, 2147483647);
 }
 
 interface Config {
