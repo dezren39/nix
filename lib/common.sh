@@ -336,9 +336,15 @@ SPOTLIGHT_MARKER=".metadata_never_index"
 
 # spotlight_mark DIR [OWNER]
 #   0 = marked, 1 = already present, 2 = absent/unwritable
+#   A symlinked marker is never followed (#1586): it counts as 2 with a
+#   warning, so no file is created, updated, or chowned outside DIR.
 spotlight_mark() {
   local dir="$1" owner="${2:-}"
   [ -d "$dir" ] || return 2
+  if [ -L "$dir/$SPOTLIGHT_MARKER" ]; then
+    echo "spotlight_mark: warning: cannot write $dir/$SPOTLIGHT_MARKER (symlink; not followed)" >&2
+    return 2
+  fi
   [ -e "$dir/$SPOTLIGHT_MARKER" ] && return 1
   touch "$dir/$SPOTLIGHT_MARKER" 2>/dev/null || return 2
   [ -n "$owner" ] && chown "$owner" "$dir/$SPOTLIGHT_MARKER" 2>/dev/null
