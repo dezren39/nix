@@ -458,6 +458,9 @@ run --path "$BARE_SCAN" --depth 1 --bare-only
 run --path "$BARE_SCAN" --depth 2 --bare-only
 [ "$STATUS" -eq 0 ] || fail "nested-bare --depth 2 scan exited $STATUS (#1587)"
 [ "$OUT" = "$expected_bare_only" ] || fail "--depth 2 did not include the deeper bare repo (got: $OUT)"
+run --path "$BARE_SCAN" --depth 2147483647 --bare-only
+[ "$STATUS" -eq 0 ] || fail "nested-bare maximum --depth scan exited $STATUS (#1587)"
+[ "$OUT" = "$expected_bare_only" ] || fail "maximum --depth lost the nested bare repos (got: $OUT)"
 
 # A bare repo that is also an explicit seed and a --follow target is emitted
 # once, just like a nested bare repo reached by the recursive scan.
