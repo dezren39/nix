@@ -137,6 +137,8 @@ FOLLOW_YES_SET=0
 FOLLOW_NO_SET=0
 AUTO_SET=0
 PATH_SET=0
+BARE_ONLY_SET=0
+NO_BARE_SET=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -150,9 +152,9 @@ while [ $# -gt 0 ]; do
     --repos-only)     { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="repos"; FILTER_FLAG="$1"; } ;;
     --worktrees-only) { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="worktrees"; FILTER_FLAG="$1"; } ;;
     --both)           { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="both"; FILTER_FLAG="$1"; } ;;
-    --bare-only)      { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="bare"; FILTER_FLAG="$1"; } ;;
+    --bare-only)      { arg_conflict --bare-only --no-bare "$NO_BARE_SET"; [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="bare"; FILTER_FLAG="$1"; BARE_ONLY_SET=1; } ;;
     --paths-only)     PATHS_ONLY=1 ;;
-    --no-bare)        INCLUDE_BARE=0 ;;
+    --no-bare)        { arg_conflict --bare-only --no-bare "$BARE_ONLY_SET"; INCLUDE_BARE=0; NO_BARE_SET=1; } ;;
     --find)           { arg_require_value "$1" "${2:-}"; arg_once "$1" FIND_SET; FIND_SPEC="$2"; shift; } ;;
     --status)         WANT_STATUS=1 ;;
     --user)           { arg_require_value "$1" "${2:-}"; arg_once "$1" USER_SET; TARGET_USER="$2"; shift; } ;;
