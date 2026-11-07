@@ -83,6 +83,14 @@ def json_client(path, entry):
         return
     with open(path) as fh:
         data = json.load(fh)
+    if not isinstance(data, dict):
+        # Valid JSON, wrong shape (#1570): the document itself is not
+        # an object, so data.get would raise a raw AttributeError that
+        # reads as a bug in mcp-clients itself. Name the actual shape
+        # instead, in the #1217 house form: a #906 per-client failure
+        # (main names the client and file, leaves this file unchanged,
+        # exits non-zero).
+        raise ValueError(f"top-level value is a {type(data).__name__}, not an object; not changed")
     want = {"mcpx": entry}
     servers = data.get("mcpServers")
     if servers is not None and not isinstance(servers, dict):
