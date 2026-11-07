@@ -332,12 +332,16 @@ printf 'x\n' > "$FOLLOWED/repo/file"
 "$real_git" -C "$FOLLOWED/repo" add file
 "$real_git" -C "$FOLLOWED/repo" -c user.name=Test -c user.email=test@example.com commit -qm init
 "$real_git" -C "$FOLLOWED/repo" worktree add -q "$FOLLOWED/linked"
+# Git permits a linked worktree checkout inside .git; discovery deliberately
+# traverses .git trees so these worktrees remain visible.
+"$real_git" -C "$FOLLOWED/repo" worktree add -q "$FOLLOWED/repo/.git/embedded"
 FOLLOWED_CANON="$(cd "$FOLLOWED" && pwd -P)"
 
 run --path "$FOLLOWED/repo" --follow
 [ "$STATUS" -eq 0 ] || fail "healthy --follow exited $STATUS (#1343)"
 case "$OUT" in *"repo"$'\t'"$FOLLOWED_CANON/repo"*) echo "ok: healthy --follow lists the repo" ;; *) fail "healthy --follow did not list the repo (got: $OUT)" ;; esac
 case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/linked"*) echo "ok: healthy --follow lists the linked worktree" ;; *) fail "healthy --follow did not list the linked worktree (got: $OUT)" ;; esac
+case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/repo/.git/embedded"*) echo "ok: healthy --follow lists the worktree embedded in .git" ;; *) fail "healthy --follow missed the worktree embedded in .git (got: $OUT)" ;; esac
 
 git_shim_dir="$TMP_ROOT/git-shim"
 mkdir -p "$git_shim_dir"
