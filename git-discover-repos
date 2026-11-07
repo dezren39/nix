@@ -235,19 +235,28 @@ is_numeric() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
 build_name_expr PRUNE_EXPR "${ALL_ARTIFACT_NAMES[@]}"
 
-# ONE traversal produces both results. The walk already has to stop at every
-# artifact directory (so a vendored node_modules/*/.git is not mistaken for a
-# repo); printing at that -prune costs nothing and removes the need for the
-# separate artifact find that used to re-walk the whole tree.
+# Two find passes identify bare-repo candidates from their objects directories,
+# then produce discovery and artifact results while pruning those exact paths.
+# Checking every directory with find -exec would launch a shell once per dir;
+# the candidate pass only runs the shape checks for directories named objects.
+# The exact-path prune also leaves ordinary .git directories traversable
+# because Git stores linked worktrees beneath them.
 #
-#   \( artifacts \) -prune -print                         -> artifact; do not descend
-#   -o \( bare repo shape \) -prune -print              -> bare repo; do not descend
-#   -o -name .git -print                                   -> repo/worktree marker
-#
-# Bare-repo shape matches is_bare_repo(). Its object store must not be walked.
-# .git and .worktrees are deliberately NOT pruned: tools stash worktrees inside
-# both.
+# The candidate pass looks one level deeper than --depth because a bare repo
+# at depth N has its objects directory at depth N+1. Artifact directories stay
+# pruned in both passes.
 ARTIFACTS_FILE="$(mktemp)"
+BARE_CANDIDATES_FILE="$(mktemp)"
+
+escape_find_pattern() {
+  local pattern="$1"
+  pattern="${pattern//\\/\\\\}"
+  pattern="${pattern//\*/\\*}"
+  pattern="${pattern//\?/\\?}"
+  pattern="${pattern//\[/\\[}"
+  printf '%s' "$pattern"
+}
+
 scan_deep() {
   [ -d "$1" ] || return 0
   # A failed find enumeration (e.g. an unreadable subdirectory) must not be
@@ -258,13 +267,73 @@ scan_deep() {
   # seed_path turns the status into the script's exit status. --auto is
   # best-effort by design, so seed_auto ignores the status and the
   # failure stays quiet there.
-  local status_file stderr_file find_status
+  local candidate_status_file candidate_stderr_file candidate_status
+  local status_file stderr_file find_status candidate_failed=0 bare_maxdepth
+  local bare_path first=1
+  # shellcheck disable=SC2016
+  local bare_candidate_probe='
+parent="${1%/objects}"
+case "${parent##*/}" in
+  .git|.worktrees) exit 0 ;;
+esac
+case "$parent" in
+  */.git/modules/*) exit 0 ;;
+esac
+if [ -d "$1" ] && [ -f "$parent/HEAD" ] && [ -d "$parent/refs" ]; then
+  printf "%s\n" "$parent" >> "$2"
+else
+  exit 1
+fi
+'
+  local -a bare_depth_args=() bare_prune_args=()
+  : > "$BARE_CANDIDATES_FILE"
+  if [ -n "$DEPTH_LIMIT" ]; then
+    if [ "$DEPTH_LIMIT" -lt 2147483647 ]; then
+      bare_maxdepth=$((DEPTH_LIMIT + 1))
+    else
+      # The deepest representable limit cannot have an additional child level
+      # on supported find implementations; avoid overflowing their depth type.
+      bare_maxdepth="$DEPTH_LIMIT"
+    fi
+    bare_depth_args=(-maxdepth "$bare_maxdepth")
+  fi
+
+  candidate_status_file="$(mktemp)"
+  candidate_stderr_file="$(mktemp)"
+  outcome_enumerate "$candidate_status_file" "$candidate_stderr_file" -- \
+    find -H "$1" "${bare_depth_args[@]}" \
+      \( "${PRUNE_EXPR[@]}" \) -prune -o \
+      \( -name objects -exec sh -c "$bare_candidate_probe" sh {} "$BARE_CANDIDATES_FILE" \; \) -prune
+  candidate_status=0
+  IFS= read -r candidate_status < "$candidate_status_file" || candidate_status=0
+  if [ "$candidate_status" -ne 0 ]; then
+    candidate_failed=1
+    if [ "$MODE" = "path" ]; then
+      cat "$candidate_stderr_file" >&2
+      echo "git-discover-repos: failed to find bare-repo candidates under: $1" >&2
+    fi
+  fi
+  rm -f "$candidate_status_file" "$candidate_stderr_file"
+
+  while IFS= read -r bare_path; do
+    [ -n "$bare_path" ] || continue
+    if [ "$first" = "1" ]; then
+      first=0
+    else
+      bare_prune_args+=(-o)
+    fi
+    bare_prune_args+=(-path "$(escape_find_pattern "$bare_path")")
+  done < <(sort -u "$BARE_CANDIDATES_FILE")
+  if [ "$first" = "0" ]; then
+    bare_prune_args=( \( "${bare_prune_args[@]}" \) -prune -print -o )
+  fi
+
   status_file="$(mktemp)"
   stderr_file="$(mktemp)"
   outcome_enumerate "$status_file" "$stderr_file" -- \
     find -H "$1" "${DEPTH_ARGS[@]}" \
       \( "${PRUNE_EXPR[@]}" \) -prune -print -o \
-      \( -type d -exec sh -c "[ -f \"\$1/HEAD\" ] && [ -d \"\$1/objects\" ] && [ -d \"\$1/refs\" ]" sh {} \; \) -prune -print -o \
+      "${bare_prune_args[@]}" \
       -name .git -print |
     while IFS= read -r hit; do
       # Fast parameter expansion avoids subshell execution of basename in discovery loop
@@ -290,13 +359,14 @@ scan_deep() {
     return 1
   fi
   rm -f "$status_file" "$stderr_file"
+  [ "$candidate_failed" = "0" ] || return 1
   return 0
 }
 
 SEEN_FILE="$(mktemp)"
 OUT_FILE="$(mktemp)"
 QUEUE_FILE="$(mktemp)"
-trap 'rm -f "$SEEN_FILE" "$OUT_FILE" "$QUEUE_FILE" "$ARTIFACTS_FILE"' EXIT
+trap 'rm -f "$SEEN_FILE" "$OUT_FILE" "$QUEUE_FILE" "$ARTIFACTS_FILE" "$BARE_CANDIDATES_FILE"' EXIT
 
 seen() { grep -qxF "$1" "$SEEN_FILE" 2>/dev/null; }
 mark_seen() { printf '%s\n' "$1" >> "$SEEN_FILE"; }

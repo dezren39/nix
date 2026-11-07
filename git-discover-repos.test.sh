@@ -354,12 +354,20 @@ printf 'x\n' > "$FOLLOWED/repo/file"
 "$real_git" -C "$FOLLOWED/repo" add file
 "$real_git" -C "$FOLLOWED/repo" -c user.name=Test -c user.email=test@example.com commit -qm init
 "$real_git" -C "$FOLLOWED/repo" worktree add -q "$FOLLOWED/linked"
+# Git permits a linked worktree checkout inside .git; discovery deliberately
+# traverses .git trees so these worktrees remain visible.
+"$real_git" -C "$FOLLOWED/repo" worktree add -q "$FOLLOWED/repo/.git/embedded"
 FOLLOWED_CANON="$(cd "$FOLLOWED" && pwd -P)"
+
+run --path "$FOLLOWED/repo"
+[ "$STATUS" -eq 0 ] || fail "plain scan with an embedded worktree exited $STATUS"
+case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/repo/.git/embedded"*) echo "ok: plain scan discovers the worktree embedded in .git" ;; *) fail "plain scan missed the worktree embedded in .git (got: $OUT)" ;; esac
 
 run --path "$FOLLOWED/repo" --follow
 [ "$STATUS" -eq 0 ] || fail "healthy --follow exited $STATUS (#1343)"
 case "$OUT" in *"repo"$'\t'"$FOLLOWED_CANON/repo"*) echo "ok: healthy --follow lists the repo" ;; *) fail "healthy --follow did not list the repo (got: $OUT)" ;; esac
 case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/linked"*) echo "ok: healthy --follow lists the linked worktree" ;; *) fail "healthy --follow did not list the linked worktree (got: $OUT)" ;; esac
+case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/repo/.git/embedded"*) echo "ok: healthy --follow lists the worktree embedded in .git" ;; *) fail "healthy --follow missed the worktree embedded in .git (got: $OUT)" ;; esac
 
 git_shim_dir="$TMP_ROOT/git-shim"
 mkdir -p "$git_shim_dir"
@@ -476,6 +484,9 @@ run --path "$BARE_SCAN" --depth 1 --bare-only
 run --path "$BARE_SCAN" --depth 2 --bare-only
 [ "$STATUS" -eq 0 ] || fail "nested-bare --depth 2 scan exited $STATUS (#1587)"
 [ "$OUT" = "$expected_bare_only" ] || fail "--depth 2 did not include the deeper bare repo (got: $OUT)"
+run --path "$BARE_SCAN" --depth 2147483647 --bare-only
+[ "$STATUS" -eq 0 ] || fail "nested-bare maximum --depth scan exited $STATUS (#1587)"
+[ "$OUT" = "$expected_bare_only" ] || fail "maximum --depth lost the nested bare repos (got: $OUT)"
 
 # A bare repo that is also an explicit seed and a --follow target is emitted
 # once, just like a nested bare repo reached by the recursive scan.
