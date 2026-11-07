@@ -683,7 +683,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             try:
                 timeout = int(body.get("timeout_s", EXEC_TIMEOUT_DEFAULT))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return self._send(400,
                                   {"error": "timeout_s must be an integer"})
             timeout = max(1, min(timeout, EXEC_TIMEOUT_MAX))
