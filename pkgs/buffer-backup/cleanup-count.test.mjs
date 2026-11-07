@@ -589,4 +589,53 @@ for (const bad of [NaN, Infinity, -Infinity]) {
   console.log("pass: getInterval clamps a 30-day interval to the Node timer ceiling (#1588)");
 }
 
+
+// 21. getConfig clamps debounceMs to the timer-safe range (#1594,
+//     oracle: the configured delay handed to setTimeout, not
+//     wall-clock timing): a negative or >2^31-1 debounceMs used to
+//     reach setTimeout verbatim, where Node collapses it to ~1 ms
+//     and the debounce is defeated. Out-of-range values must clamp
+//     to [0, 2147483647]; in-range values (including 0 and the
+//     ceiling itself) pass through unchanged.
+{
+  let configValues = {};
+  const fakeVscode = {
+    workspace: {
+      getConfiguration: (section) => ({
+        get: (key, fallback) => {
+          const full = `${section}.${key}`;
+          return Object.prototype.hasOwnProperty.call(configValues, full)
+            ? configValues[full]
+            : fallback;
+        },
+      }),
+    },
+  };
+  const configFactory = new Function(
+    "vscode",
+    "DEFAULT_BACKUP_DIR",
+    `${stripTypes(extractFunction("finiteNumberOr"))}
+     ${stripTypes(extractFunction("nonEmptyStringOr"))}
+     ${stripTypes(extractFunction("durationToSeconds"))}
+     ${stripTypes(extractFunction("getDuration"))}
+     ${stripTypes(extractFunction("getInterval"))}
+     ${stripTypes(extractFunction("getConfig"))}
+     return { getConfig };`,
+  );
+  const { getConfig } = configFactory(fakeVscode, "/tmp/fallback-dir");
+  configValues = { "bufferBackup.debounceMs": -5000 };
+  assert.strictEqual(getConfig().debounceMs, 0, "negative debounceMs must clamp to 0");
+  configValues = { "bufferBackup.debounceMs": 2147483648 };
+  assert.strictEqual(getConfig().debounceMs, 2147483647, "2^31 debounceMs must clamp to the timer ceiling");
+  configValues = { "bufferBackup.debounceMs": 2592000000 };
+  assert.strictEqual(getConfig().debounceMs, 2147483647, "30-day debounceMs must clamp to the timer ceiling");
+  configValues = { "bufferBackup.debounceMs": 1500 };
+  assert.strictEqual(getConfig().debounceMs, 1500, "in-range debounceMs passes through unchanged");
+  configValues = { "bufferBackup.debounceMs": 0 };
+  assert.strictEqual(getConfig().debounceMs, 0, "0 debounceMs passes through unchanged");
+  configValues = { "bufferBackup.debounceMs": 2147483647 };
+  assert.strictEqual(getConfig().debounceMs, 2147483647, "ceiling debounceMs passes through unchanged");
+  console.log("pass: getConfig clamps debounceMs to the timer-safe range (#1594)");
+}
+
 console.log("cleanup-count.test.mjs: all assertions passed");
