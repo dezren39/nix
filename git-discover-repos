@@ -221,6 +221,11 @@ git_q() { git -c safe.directory='*' "$@"; }
 
 canon() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"; }
 is_repo() { [ -e "$1/.git" ]; }
+# A bare repo has no .git entry; the directory itself is the object store.
+is_bare_repo() {
+  [ -d "$1" ] || return 1
+  [ -f "$1/HEAD" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ]
+}
 is_numeric() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
 build_name_expr PRUNE_EXPR "${ALL_ARTIFACT_NAMES[@]}"
@@ -230,11 +235,13 @@ build_name_expr PRUNE_EXPR "${ALL_ARTIFACT_NAMES[@]}"
 # repo); printing at that -prune costs nothing and removes the need for the
 # separate artifact find that used to re-walk the whole tree.
 #
-#   \( artifacts \) -prune -print   ->  an artifact dir; do not descend
-#   -o -name .git -print            ->  a repo or worktree marker
+#   \( artifacts \) -prune -print                         -> artifact; do not descend
+#   -o \( bare repo shape \) -prune -print              -> bare repo; do not descend
+#   -o -name .git -print                                   -> repo/worktree marker
 #
-# Consumers tell them apart by basename. .git and .worktrees are deliberately
-# NOT pruned: tools stash worktrees inside both.
+# Bare-repo shape matches is_bare_repo(). Its object store must not be walked.
+# .git and .worktrees are deliberately NOT pruned: tools stash worktrees inside
+# both.
 ARTIFACTS_FILE="$(mktemp)"
 scan_deep() {
   [ -d "$1" ] || return 0
@@ -250,12 +257,21 @@ scan_deep() {
   status_file="$(mktemp)"
   stderr_file="$(mktemp)"
   outcome_enumerate "$status_file" "$stderr_file" -- \
-    find -H "$1" "${DEPTH_ARGS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -print -o -name .git -print |
+    find -H "$1" "${DEPTH_ARGS[@]}" \
+      \( "${PRUNE_EXPR[@]}" \) -prune -print -o \
+      \( -type d -exec sh -c "[ -f \"\$1/HEAD\" ] && [ -d \"\$1/objects\" ] && [ -d \"\$1/refs\" ]" sh {} \; \) -prune -print -o \
+      -name .git -print |
     while IFS= read -r hit; do
       # Fast parameter expansion avoids subshell execution of basename in discovery loop
       case "${hit##*/}" in
         .git) printf '%s\n' "${hit%/.git}" ;;
-        *)    printf '%s\n' "$hit" >> "$ARTIFACTS_FILE" ;;
+        *)
+          if is_bare_repo "$hit"; then
+            printf '%s\n' "$hit"
+          else
+            printf '%s\n' "$hit" >> "$ARTIFACTS_FILE"
+          fi
+          ;;
       esac
     done
   find_status=0
@@ -270,12 +286,6 @@ scan_deep() {
   fi
   rm -f "$status_file" "$stderr_file"
   return 0
-}
-
-# A bare repo has no .git entry; the directory itself is the object store.
-is_bare_repo() {
-  [ -d "$1" ] || return 1
-  [ -f "$1/HEAD" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ]
 }
 
 SEEN_FILE="$(mktemp)"
