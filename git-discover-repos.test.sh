@@ -337,6 +337,10 @@ printf 'x\n' > "$FOLLOWED/repo/file"
 "$real_git" -C "$FOLLOWED/repo" worktree add -q "$FOLLOWED/repo/.git/embedded"
 FOLLOWED_CANON="$(cd "$FOLLOWED" && pwd -P)"
 
+run --path "$FOLLOWED/repo"
+[ "$STATUS" -eq 0 ] || fail "plain scan with an embedded worktree exited $STATUS"
+case "$OUT" in *"worktree"$'\t'"$FOLLOWED_CANON/repo/.git/embedded"*) echo "ok: plain scan discovers the worktree embedded in .git" ;; *) fail "plain scan missed the worktree embedded in .git (got: $OUT)" ;; esac
+
 run --path "$FOLLOWED/repo" --follow
 [ "$STATUS" -eq 0 ] || fail "healthy --follow exited $STATUS (#1343)"
 case "$OUT" in *"repo"$'\t'"$FOLLOWED_CANON/repo"*) echo "ok: healthy --follow lists the repo" ;; *) fail "healthy --follow did not list the repo (got: $OUT)" ;; esac
