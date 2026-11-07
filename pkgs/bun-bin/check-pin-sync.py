@@ -39,8 +39,23 @@ HASHES = Path("pkgs/bun-bin/hashes.json")
 
 def workflow_bun_version(root: Path) -> str | None:
     text = (root / WORKFLOW).read_text()
-    match = re.search(r'^\s*bun-version:\s*"?([^"\s]+)"?\s*$', text, re.MULTILINE)
-    return match.group(1) if match else None
+    # YAML scalar forms (#1600): the pin may be double-quoted,
+    # single-quoted or unquoted, and may carry a trailing comment --
+    # all the same value to YAML and to setup-bun. The old pattern
+    # allowed only optional double quotes and anchored end-of-line
+    # right after the value, so a single-quoted pin was captured with
+    # its quotes (false drift, exit 1) and a commented pin did not
+    # match at all (None -- the false could-not-read branch, exit 1).
+    # As in YAML, a comment must be separated from the value by
+    # whitespace.
+    match = re.search(
+        r"""^\s*bun-version:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))(?:[ \t]+#.*)?[ \t]*$""",
+        text,
+        re.MULTILINE,
+    )
+    if match is None:
+        return None
+    return next(group for group in match.groups() if group is not None)
 
 
 def hashes_bun_version(root: Path) -> str | None:
