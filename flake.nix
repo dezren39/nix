@@ -259,6 +259,7 @@ rec {
         inputs.nix-homebrew.darwinModules.nix-homebrew
         inputs.mac-app-util.darwinModules.default
         inputs.home-manager.darwinModules.home-manager
+        inputs.self.darwinModules.mcpx
         ./configuration.nix
       ];
       specialArgs = { inherit inputs; };
@@ -294,9 +295,10 @@ rec {
     # them through; this flake exposes the same outputs so consumers
     # of this flake keep one import shape. darwinModules.mcpx — the
     # slice #343 left remaining — now exists via the chain. This
-    # repo's own machine configs do not enable services.mcpx yet:
-    # configuration.nix still runs its hand-rolled agent, whose
-    # fixed-path pattern is what the darwin module encodes.
+    # repo's darwin hosts now enable services.mcpx (configuration.nix
+    # sets it from mcpx.config.nix): the hand-rolled agent that used
+    # to run there is the fixed-path pattern the darwin module
+    # encodes, and it is gone from configuration.nix.
     nixosModules.mcpx = inputs.openchamber.nixosModules.mcpx;
     homeManagerModules.mcpx = inputs.openchamber.homeManagerModules.mcpx;
     darwinModules.mcpx = inputs.openchamber.darwinModules.mcpx;
