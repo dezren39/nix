@@ -979,6 +979,34 @@ check("1591 Copilot still enforced", "\"mcpx\"" in read(os.path.join(home, ".cop
 check("1591 Codex still enforced", "[mcp_servers.mcpx]" in read(os.path.join(home, ".codex/config.toml")))
 shutil.rmtree(home)
 
+# #1593: the #1591 dangling-symlink scenario above covers json_client
+# (Claude Code) and zed, but Codex was only seeded as a regular file --
+# codex()'s own lexists guard (mcp-clients.py:419) was never reached in
+# its broken-config form. Companion scenario: Codex is the dangling
+# link, the other three clients are regular files and still enforced.
+# Mutation oracle: reverting codex()'s guard to os.path.exists makes
+# this scenario fail (Codex silently skipped, exit 0).
+home = fresh_home()
+seed(home, ".copilot/mcp-config.json", '{"mcpServers": {"other": {"command": "x"}}}')
+seed(home, ".claude.json", '{"mcpServers": {"other": {"command": "x"}}}')
+seed(home, ".config/zed/settings.json", '{\n  "theme": "Dark"\n}\n')
+codex_link = os.path.join(home, ".codex/config.toml")
+os.makedirs(os.path.dirname(codex_link), exist_ok=True)
+os.symlink(os.path.join(home, "missing/config.toml"), codex_link)
+r = run(home)
+check("1593 dangling Codex config exits 1", r.returncode == 1, f"exit={r.returncode} stderr={r.stderr}")
+check("1593 stderr names Codex and its file",
+      "Codex" in r.stderr and "config.toml" in r.stderr, r.stderr)
+check("1593 summary counts the unenforced Codex client",
+      "1 of 4 clients not enforced" in r.stderr, r.stderr)
+check("1593 Codex link untouched and target still absent",
+      os.path.islink(codex_link) and os.readlink(codex_link) == os.path.join(home, "missing/config.toml")
+      and not os.path.exists(codex_link))
+check("1593 Copilot still enforced", "\"mcpx\"" in read(os.path.join(home, ".copilot/mcp-config.json")))
+check("1593 Claude Code still enforced", "\"mcpx\"" in read(os.path.join(home, ".claude.json")))
+check("1593 Zed still enforced", '"context_servers"' in read(os.path.join(home, ".config/zed/settings.json")))
+shutil.rmtree(home)
+
 # #1591 control: a genuinely absent config (no file, no link) still
 # skips silently -- an empty HOME is a successful no-op run.
 home = fresh_home()
