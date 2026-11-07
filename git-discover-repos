@@ -283,7 +283,13 @@ fi
   local -a bare_depth_args=() bare_prune_args=()
   : > "$BARE_CANDIDATES_FILE"
   if [ -n "$DEPTH_LIMIT" ]; then
-    bare_maxdepth=$((DEPTH_LIMIT + 1))
+    if [ "$DEPTH_LIMIT" -lt 2147483647 ]; then
+      bare_maxdepth=$((DEPTH_LIMIT + 1))
+    else
+      # The deepest representable limit cannot have an additional child level
+      # on supported find implementations; avoid overflowing their depth type.
+      bare_maxdepth="$DEPTH_LIMIT"
+    fi
     bare_depth_args=(-maxdepth "$bare_maxdepth")
   fi
 
