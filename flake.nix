@@ -1118,6 +1118,25 @@ rec {
               bash ./mcp-clients-activation.test.sh
               touch $out
             '';
+        # #1454: activation must durably record failures from the root and
+        # primary-user helper runs without hiding helper output or blocking
+        # later activation entries when the event write succeeds.
+        system-activation-helper-tests =
+          pkgs.runCommandLocal "system-activation-helper-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gnugrep
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/system-activation-helper.sh $src/system-activation-helper.test.sh ./
+              chmod u+w ./system-activation-helper.test.sh
+              bash ./system-activation-helper.test.sh
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used
