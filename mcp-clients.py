@@ -75,7 +75,11 @@ def write(path, text, what):
 
 def json_client(path, entry):
     """A JSON file whose top-level mcpServers holds the servers (Copilot CLI, Claude Code)."""
-    if not os.path.exists(path):
+    # #1591: lexists, not exists — a dangling symlink is a present but
+    # broken config, not an absent one. Letting it past the guard makes
+    # the open below fail through the #906 per-client path (named,
+    # non-zero) instead of silently skipping enforcement for that client.
+    if not os.path.lexists(path):
         return
     with open(path) as fh:
         data = json.load(fh)
@@ -408,7 +412,11 @@ def codex(path):
     spellings: dotted keys mcp_servers.<name>... and a bare
     mcp_servers = { ... } inline table at the TOML root, #956), then add
     [mcp_servers.mcpx]."""
-    if not os.path.exists(path):
+    # #1591: lexists, not exists — a dangling symlink is a present but
+    # broken config, not an absent one. Letting it past the guard makes
+    # the open below fail through the #906 per-client path (named,
+    # non-zero) instead of silently skipping enforcement for that client.
+    if not os.path.lexists(path):
         return
     with open(path) as fh:
         lines = fh.read().splitlines()
@@ -774,7 +782,11 @@ def zed(path):
     any opening-brace shape ({} , single-line, '{ // comment'); a file with
     no locatable top-level object raises instead of silently skipping
     enforcement (#950)."""
-    if not os.path.exists(path):
+    # #1591: lexists, not exists — a dangling symlink is a present but
+    # broken config, not an absent one. Letting it past the guard makes
+    # the open below fail through the #906 per-client path (named,
+    # non-zero) instead of silently skipping enforcement for that client.
+    if not os.path.lexists(path):
         return
     with open(path) as fh:
         text = fh.read()

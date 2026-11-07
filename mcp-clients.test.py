@@ -947,5 +947,46 @@ check("1562 symlinked Codex second run no-op",
       f"stdout={r2.stdout!r}")
 shutil.rmtree(home)
 
+# #1591: a dangling-symlinked client config is a present but broken
+# config, not an absent one. Each entry point used to guard on
+# os.path.exists (which follows links), so the link read as absent and
+# the client was silently skipped at exit 0. Now the guards use
+# os.path.lexists, the open below fails, and the #906 per-client path
+# names the client and file and exits non-zero -- link untouched, no
+# target created, the other clients still enforced.
+home = fresh_home()
+seed(home, ".copilot/mcp-config.json", '{"mcpServers": {"other": {"command": "x"}}}')
+seed(home, ".codex/config.toml", "[mcp_servers.other]\ncommand = \"x\"\n")
+claude_link = os.path.join(home, ".claude.json")
+os.symlink("missing/claude.json", claude_link)
+zed_link = os.path.join(home, ".config/zed/settings.json")
+os.makedirs(os.path.dirname(zed_link), exist_ok=True)
+os.symlink(os.path.join(home, "missing/settings.json"), zed_link)
+r = run(home)
+check("1591 dangling configs exit 1", r.returncode == 1, f"exit={r.returncode} stderr={r.stderr}")
+check("1591 stderr names Claude Code and its file",
+      "Claude Code" in r.stderr and ".claude.json" in r.stderr, r.stderr)
+check("1591 stderr names Zed and its file",
+      "Zed" in r.stderr and "settings.json" in r.stderr, r.stderr)
+check("1591 summary counts both unenforced clients",
+      "2 of 4 clients not enforced" in r.stderr, r.stderr)
+check("1591 Claude link untouched and target still absent",
+      os.path.islink(claude_link) and os.readlink(claude_link) == "missing/claude.json"
+      and not os.path.exists(os.path.join(home, "missing/claude.json")))
+check("1591 Zed link untouched and target still absent",
+      os.path.islink(zed_link) and not os.path.exists(zed_link))
+check("1591 Copilot still enforced", "\"mcpx\"" in read(os.path.join(home, ".copilot/mcp-config.json")))
+check("1591 Codex still enforced", "[mcp_servers.mcpx]" in read(os.path.join(home, ".codex/config.toml")))
+shutil.rmtree(home)
+
+# #1591 control: a genuinely absent config (no file, no link) still
+# skips silently -- an empty HOME is a successful no-op run.
+home = fresh_home()
+r = run(home)
+check("1591 absent configs exit 0 silently",
+      r.returncode == 0 and r.stdout == "" and r.stderr == "",
+      f"exit={r.returncode} stdout={r.stdout!r} stderr={r.stderr!r}")
+shutil.rmtree(home)
+
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
 sys.exit(1 if FAILURES else 0)
